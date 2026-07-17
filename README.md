@@ -10,7 +10,7 @@
 - **TIMF.UI** — 纯托管即时模式 UI 库模组（其他模组可依赖）
 - **ModSettingsHub** — 统一的模组列表 + 设置页面窗口（F9）
 
-> 仅供个人学习 / 单机或私服自用。注入可能被杀软误报，请自行加白。
+> 仅供个人学习 / 单机或私服自用。
 
 主菜单左下角游戏版本号上方会显示 **TIMF v1.0.0**（由框架自身绘制，不依赖模组）。
 
@@ -287,7 +287,7 @@ tML 概念对照：`ModSystem.PostDraw*` ≈ `IMod.PostDraw` via `Main.OnPostDra
 
 - 游戏版本：1.4.5.6（以本机 `Terraria.exe` 为准）
 - tModLoader API 文档（1.4.4，语义参考）：https://docs.tmodloader.net/docs/preview/annotated.html
-- 原 BossCursor 模组资源（源码隐藏）：`tModLoader\ModReader\BossCursor`
+- BossCursor 模组资源来自 tmodloader Steam 创意工坊模组 BossCursor
 
 ## 限制（v1）
 

@@ -1,0 +1,8 @@
+{
+  "Enabled": true,
+  "CursorSize": 1.0,
+  "CursorDistance": 64,
+  "HideOnScreen": false,
+  "BlackListPillars": false,
+  "ToggleKey": "Insert"
+}

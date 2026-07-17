@@ -1,0 +1,13 @@
+bin/
+obj/
+dist/
+_decomp/
+lib/*.dll
+*.user
+*.suo
+.vs/
+cmake-build-*/
+src/TIMF.Bootstrap/build/
+*.log
+TIMF_HOME.txt
+.claude/

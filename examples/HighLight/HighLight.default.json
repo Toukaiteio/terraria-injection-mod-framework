@@ -1,0 +1,16 @@
+{
+  "Enabled": true,
+  "ToggleKey": "P",
+  "CircleR": 255,
+  "CircleG": 0,
+  "CircleB": 0,
+  "CircleA": 255,
+  "Opacity": 0.9,
+  "CircleScale": 1.0,
+  "VelocityLineLengthMultiplier": 25.0,
+  "UseMaxScreenLengthForLine": false,
+  "VelocityLineThicknessMultiplier": 0.8,
+  "MaxVelocityLineThickness": 6,
+  "FadeLineEnds": true,
+  "DrawEveryNFrames": 1
+}

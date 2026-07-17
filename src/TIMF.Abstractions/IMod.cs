@@ -7,7 +7,9 @@ namespace TIMF.Abstractions
     /// </summary>
     public interface IMod
     {
+        /// <summary>Display name and default dependency id.</summary>
         string Name { get; }
+
         string Version { get; }
 
         void Load(IModContext context);
@@ -15,7 +17,7 @@ namespace TIMF.Abstractions
 
         /// <summary>
         /// Called each frame after the game finishes drawing (Main.OnPostDraw).
-        /// Safe place for screen-space overlays.
+        /// Safe place for screen-space overlays and immediate-mode UI widgets.
         /// </summary>
         void PostDraw(GameTime gameTime);
     }

@@ -36,7 +36,6 @@ namespace TIMF.Core.Hooks
                 _harmony = new Harmony("timf.core");
                 DrawVersionNumberPatch.SetOverlay(_menuVersion);
                 _harmony.PatchAll(typeof(DrawVersionNumberPatch).Assembly);
-                // PatchAll patches every [HarmonyPatch] in the assembly; that's fine for now.
                 _versionPatchInstalled = true;
                 _log.Info("Harmony patch installed: Main.DrawVersionNumber postfix");
             }
@@ -86,6 +85,18 @@ namespace TIMF.Core.Hooks
                 if (Main.dedServ)
                     return;
 
+                // UI host: begin frame so mod PostDraw can record immediate-mode widgets.
+                IUiHost uiHost = null;
+                try
+                {
+                    _mods.Services.TryGetService(out uiHost);
+                    uiHost?.NewFrame(gameTime);
+                }
+                catch (Exception ex)
+                {
+                    _log.Error("IUiHost.NewFrame failed", ex);
+                }
+
                 // Only use PostDraw fallback when Harmony patch is unavailable.
                 if (!_versionPatchInstalled)
                 {
@@ -110,6 +121,16 @@ namespace TIMF.Core.Hooks
                     {
                         _log.Error("PostDraw failed in mod " + list[i].Name, ex);
                     }
+                }
+
+                // Flush UI after all mods contributed widgets.
+                try
+                {
+                    uiHost?.Render();
+                }
+                catch (Exception ex)
+                {
+                    _log.Error("IUiHost.Render failed", ex);
                 }
             }
             catch (Exception ex)

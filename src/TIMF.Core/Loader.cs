@@ -151,16 +151,31 @@ namespace TIMF.Core
             try
             {
                 var name = new AssemblyName(args.Name).Name + ".dll";
+
+                // 1. TIMF home root (Core, Abstractions, Harmony, ...)
                 var candidate = Path.Combine(_home ?? "", name);
                 if (File.Exists(candidate))
                     return Assembly.LoadFrom(candidate);
 
+                // 2. Next to Core DLL
                 var coreDir = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
                 if (!string.IsNullOrEmpty(coreDir))
                 {
                     candidate = Path.Combine(coreDir, name);
                     if (File.Exists(candidate))
                         return Assembly.LoadFrom(candidate);
+                }
+
+                // 3. Any per-mod folder under Mods/ (bundled private dependencies)
+                var modsDir = Path.Combine(_home ?? "", "Mods");
+                if (Directory.Exists(modsDir))
+                {
+                    foreach (var dir in Directory.GetDirectories(modsDir))
+                    {
+                        candidate = Path.Combine(dir, name);
+                        if (File.Exists(candidate))
+                            return Assembly.LoadFrom(candidate);
+                    }
                 }
             }
             catch

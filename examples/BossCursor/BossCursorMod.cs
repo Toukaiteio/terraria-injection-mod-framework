@@ -13,7 +13,7 @@ namespace BossCursor
     /// Behavior inspired by the classic Boss Cursor client mod (not a source port).
     /// </summary>
     [TimfMod]
-    public sealed class BossCursorMod : IMod
+    public sealed class BossCursorMod : IMod, IModSettings
     {
         // NPCID.LunarTower* (1.4.5.6)
         private static readonly int[] PillarTypes = { 422, 493, 507, 517 };
@@ -55,6 +55,40 @@ namespace BossCursor
             catch { /* ignore */ }
             _cursorTex = null;
             _ctx = null;
+        }
+
+        public void BuildSettingsUI(IImmediateModeUi ui)
+        {
+            var dirty = false;
+
+            if (ui.Checkbox("Enabled", ref _config.Enabled))
+            {
+                _enabled = _config.Enabled;
+                dirty = true;
+            }
+
+            dirty |= ui.SliderFloat("Cursor size", ref _config.CursorSize, 0.2f, 3f);
+            dirty |= ui.SliderFloat("Ring distance", ref _config.CursorDistance, 16f, 400f);
+            dirty |= ui.Checkbox("Hide when on screen", ref _config.HideOnScreen);
+            dirty |= ui.Checkbox("Skip pillars", ref _config.BlackListPillars);
+
+            ui.Spacing();
+            ui.Text("Toggle key: " + _toggleKey);
+
+            if (dirty)
+                SaveConfig();
+        }
+
+        private void SaveConfig()
+        {
+            try
+            {
+                _config.Save(Path.Combine(_ctx.ConfigDirectory, "BossCursor.json"));
+            }
+            catch (Exception ex)
+            {
+                _ctx.Log.Error("BossCursor save config failed", ex);
+            }
         }
 
         public void PostDraw(GameTime gameTime)
@@ -242,10 +276,8 @@ namespace BossCursor
             {
                 var candidates = new[]
                 {
+                    Path.Combine(_ctx.ContentDirectory, "Cursor.png"),
                     Path.Combine(_ctx.ModDirectory, "Cursor.png"),
-                    Path.Combine(_ctx.ModDirectory, "UI", "Cursor.png"),
-                    Path.Combine(_ctx.HomeDirectory, "Mods", "Cursor.png"),
-                    Path.Combine(_ctx.HomeDirectory, "content", "BossCursor", "Cursor.png"),
                 };
 
                 string found = null;

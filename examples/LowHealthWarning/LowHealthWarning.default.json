@@ -1,0 +1,14 @@
+{
+  "Enabled": true,
+  "ToggleKey": "Home",
+  "ThresholdRatio": 0.25,
+  "FullStrengthRatio": 0.08,
+  "MaxEdgeThickness": 72,
+  "MaxOpacity": 0.42,
+  "PulseSpeed": 2.2,
+  "PulseAmount": 0.18,
+  "GradientBands": 12,
+  "ColorR": 220,
+  "ColorG": 20,
+  "ColorB": 20
+}

@@ -74,9 +74,13 @@ namespace TIMF.Core
                 }
 
                 _modLoader = new ModLoader(_log, _home);
-                _modLoader.LoadAll();
 
                 _hooks = new GameHooks(_log, _modLoader);
+                // Register framework services before mods Load() so they can resolve them.
+                _hooks.RegisterServices();
+
+                _modLoader.LoadAll();
+
                 _hooks.Install();
 
                 _log.Info("TIMF Core loaded successfully");

@@ -1,0 +1,14 @@
+{
+  "Window.Title": "Mod Settings",
+  "UI.NoMods": "No mods registered yet.",
+  "UI.LoadedMods": "Loaded mods ({0})",
+  "UI.SelectHint": "Select a mod to open its settings window.",
+  "UI.SettingsFor": "Settings: {0}",
+  "UI.NoSettings": "This mod has no settings UI.",
+  "Chat.Open": "Mod Settings: open ({0})",
+  "Chat.Closed": "Mod Settings: closed ({0})",
+  "Chat.Ready": "Press {0} for the Mod Settings window",
+  "Keybind.Toggle": "Mod Settings Toggle"
+,
+  "UI.OpenSettings": "Open settings"
+}

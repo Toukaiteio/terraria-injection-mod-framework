@@ -5,6 +5,7 @@ using System.Linq;
 using System.Reflection;
 using System.Text;
 using TIMF.Abstractions;
+using TIMF.Core.Localization;
 
 namespace TIMF.Core.Modding
 {
@@ -17,10 +18,12 @@ namespace TIMF.Core.Modding
         private readonly ServiceRegistry _services = new ServiceRegistry();
         private readonly List<IMod> _mods = new List<IMod>();
         private readonly List<ModDescriptor> _descriptors = new List<ModDescriptor>();
+        private LanguageService _language;
 
         public IReadOnlyList<IMod> Mods => _mods;
         public IServiceRegistry Services => _services;
         public IReadOnlyList<ModDescriptor> Descriptors => _descriptors;
+        public LanguageService Language => _language;
 
         public ModLoader(ILogger log, string home)
         {
@@ -30,6 +33,10 @@ namespace TIMF.Core.Modding
             _configDir = Path.Combine(home, "config");
             Directory.CreateDirectory(_modsDir);
             Directory.CreateDirectory(_configDir);
+
+            // Language service is available before mods load so each ModContext can subscribe.
+            _language = new LanguageService(_log);
+            _services.Register<ILanguageService>(_language);
         }
 
         public void LoadAll()
@@ -275,7 +282,8 @@ namespace TIMF.Core.Modding
             var modLog = new Logging.FileLogger(
                 Path.Combine(_home, "logs", "mod-" + Sanitize(d.Id) + ".log"),
                 d.Id);
-            var ctx = new ModContext(modLog, _home, _configDir, modDir, d.Path, _services);
+            var loc = new ModLocalization(modLog, modDir, _language);
+            var ctx = new ModContext(modLog, _home, _configDir, modDir, d.Path, _services, loc);
 
             _log.Info("Loading mod " + d.Id + " v" + d.Version + " from " + Path.GetFileName(d.Path));
             mod.Load(ctx);

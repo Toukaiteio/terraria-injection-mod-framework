@@ -20,8 +20,9 @@ namespace HighLight
         private HighLightConfig _config;
         private Texture2D _pixel;
         private bool _enabled = true;
-        private Keys _toggleKey = Keys.P;
-        private KeyboardState _prevKeyboard;
+        private IKeybind _toggle;
+        private IKeybindService _keybinds;
+        private const string ToggleId = "HighLight.Toggle";
         private bool _announcePending;
         private int _frameCounter;
 
@@ -34,14 +35,20 @@ namespace HighLight
             var cfgPath = Path.Combine(context.ConfigDirectory, "HighLight.json");
             _config = HighLightConfig.LoadOrCreate(cfgPath);
             _enabled = _config.Enabled;
-            _toggleKey = ParseKey(_config.ToggleKey, Keys.P);
-            _prevKeyboard = Keyboard.GetState();
+            var defaultKey = ParseKey(_config.ToggleKey, Keys.P);
+            if (context.Services.TryGetService(out _keybinds) && _keybinds != null)
+                _toggle = _keybinds.Register(ToggleId, context.L.Get("Keybind.Toggle", "HighLight Toggle"), defaultKey);
+            else
+                context.Log.Error("IKeybindService unavailable — HighLight toggle will not work");
             _announcePending = true;
-            context.Log.Info("HighLight loaded. Toggle=" + _toggleKey + " config=" + cfgPath);
+            context.Log.Info("HighLight loaded. Toggle=" + ToggleId + " default=" + defaultKey + " config=" + cfgPath);
         }
 
         public void Unload()
         {
+            try { _keybinds?.Unregister(ToggleId); } catch { /* ignore */ }
+            _keybinds = null;
+            _toggle = null;
             try
             {
                 if (_pixel != null && !_pixel.IsDisposed)
@@ -56,30 +63,56 @@ namespace HighLight
         public void BuildSettingsUI(IImmediateModeUi ui)
         {
             var dirty = false;
+            var L = _ctx.L;
 
-            if (ui.Checkbox("Enabled", ref _config.Enabled))
+            if (ui.Checkbox(L.Get("Settings.Enabled", "Enabled"), ref _config.Enabled))
             {
                 _enabled = _config.Enabled;
                 dirty = true;
             }
 
-            dirty |= ui.SliderFloat("Opacity", ref _config.Opacity, 0f, 1f);
-            dirty |= ui.SliderFloat("Circle scale", ref _config.CircleScale, 0.1f, 5f);
-            dirty |= ui.SliderFloat("Line length x", ref _config.VelocityLineLengthMultiplier, 1f, 50f);
-            dirty |= ui.SliderFloat("Line thickness x", ref _config.VelocityLineThicknessMultiplier, 0.1f, 5f);
+            dirty |= ui.SliderFloat(L.Get("Settings.Opacity", "Opacity"), ref _config.Opacity, 0f, 1f);
+
+            ui.Separator();
+            ui.Text(L.Get("Settings.MarkerStyle", "Marker style:"));
+            dirty |= ui.Checkbox(L.Get("Settings.HitboxStyle", "Snap to hitbox (rectangle)"), ref _config.HitboxStyle);
+            if (_config.HitboxStyle)
+            {
+                var ht = (float)_config.HitboxThickness;
+                if (ui.SliderFloat(L.Get("Settings.OutlineThickness", "Outline thickness"), ref ht, 1f, 6f))
+                {
+                    _config.HitboxThickness = (int)Math.Round(ht);
+                    dirty = true;
+                }
+                dirty |= ui.Checkbox(L.Get("Settings.FillHitbox", "Fill hitbox"), ref _config.FillHitbox);
+                if (_config.FillHitbox)
+                    dirty |= ui.SliderFloat(L.Get("Settings.FillOpacity", "Fill opacity"), ref _config.FillOpacity, 0f, 1f);
+            }
+            else
+            {
+                dirty |= ui.SliderFloat(L.Get("Settings.CircleScale", "Circle scale"), ref _config.CircleScale, 0.1f, 5f);
+            }
+            ui.Separator();
+
+            ui.Text(L.Get("Settings.VelocityLine", "Projectile velocity line:"));
+            dirty |= ui.SliderFloat(L.Get("Settings.LineLength", "Line length x"), ref _config.VelocityLineLengthMultiplier, 1f, 50f);
+            dirty |= ui.SliderFloat(L.Get("Settings.LineThickness", "Line thickness x"), ref _config.VelocityLineThicknessMultiplier, 0.1f, 5f);
 
             var maxThick = (float)_config.MaxVelocityLineThickness;
-            if (ui.SliderFloat("Max thickness", ref maxThick, 1f, 20f))
+            if (ui.SliderFloat(L.Get("Settings.MaxThickness", "Max thickness"), ref maxThick, 1f, 20f))
             {
                 _config.MaxVelocityLineThickness = (int)Math.Round(maxThick);
                 dirty = true;
             }
 
-            dirty |= ui.Checkbox("Line to screen edge", ref _config.UseMaxScreenLengthForLine);
-            dirty |= ui.Checkbox("Fade line ends", ref _config.FadeLineEnds);
+            dirty |= ui.Checkbox(L.Get("Settings.LineToEdge", "Line to screen edge"), ref _config.UseMaxScreenLengthForLine);
+            dirty |= ui.Checkbox(L.Get("Settings.FadeEnds", "Fade line ends"), ref _config.FadeLineEnds);
 
             ui.Spacing();
-            ui.Text("Toggle key: " + _toggleKey);
+            var bind = _toggle != null && !string.IsNullOrEmpty(_toggle.CurrentBindingDisplay)
+                ? _toggle.CurrentBindingDisplay
+                : L.Get("Settings.Unbound", "(unbound)");
+            ui.Text(L.Format("Settings.Toggle", bind));
 
             if (dirty)
                 SaveConfig();
@@ -169,8 +202,10 @@ namespace HighLight
                     if (!IsNearScreen(center, Math.Max(proj.width, proj.height)))
                         continue;
 
-                    var radius = Math.Max(proj.width, proj.height) / 2f;
-                    DrawCircle(spriteBatch, center, radius * scale, baseColor, 3);
+                    if (_config.HitboxStyle)
+                        DrawHitbox(spriteBatch, proj.position, proj.width, proj.height, baseColor);
+                    else
+                        DrawCircle(spriteBatch, center, Math.Max(proj.width, proj.height) / 2f * scale, baseColor, 3);
 
                     var velocity = proj.velocity;
                     var speed = velocity.Length();
@@ -203,7 +238,7 @@ namespace HighLight
                 }
             }
 
-            // Hostile NPCs: circle only.
+            // Hostile NPCs: hitbox rectangle (default) or circle.
             var npcs = Main.npc;
             if (npcs != null)
             {
@@ -218,10 +253,38 @@ namespace HighLight
                     if (!IsNearScreen(center, Math.Max(npc.width, npc.height)))
                         continue;
 
-                    var radius = Math.Max(npc.width, npc.height) / 2f;
-                    DrawCircle(spriteBatch, center, radius * scale, baseColor, 3);
+                    if (_config.HitboxStyle)
+                        DrawHitbox(spriteBatch, npc.position, npc.width, npc.height, baseColor);
+                    else
+                        DrawCircle(spriteBatch, center, Math.Max(npc.width, npc.height) / 2f * scale, baseColor, 3);
                 }
             }
+        }
+
+        /// <summary>Draw an outline (and optional fill) snapped to an entity's collision box.</summary>
+        private void DrawHitbox(SpriteBatch sb, Vector2 worldPos, int width, int height, Color color)
+        {
+            if (_pixel == null || _pixel.IsDisposed)
+                return;
+
+            var x = (int)(worldPos.X - Main.screenPosition.X);
+            var y = (int)(worldPos.Y - Main.screenPosition.Y);
+            if (width <= 0 || height <= 0)
+                return;
+
+            var t = Math.Max(1, _config.HitboxThickness);
+
+            if (_config.FillHitbox)
+            {
+                var fill = color * MathHelper.Clamp(_config.FillOpacity, 0f, 1f);
+                sb.Draw(_pixel, new Rectangle(x, y, width, height), fill);
+            }
+
+            // Four edges as filled rectangles (crisp, no rotation).
+            sb.Draw(_pixel, new Rectangle(x, y, width, t), color);                    // top
+            sb.Draw(_pixel, new Rectangle(x, y + height - t, width, t), color);       // bottom
+            sb.Draw(_pixel, new Rectangle(x, y, t, height), color);                   // left
+            sb.Draw(_pixel, new Rectangle(x + width - t, y, t, height), color);       // right
         }
 
         /// <summary>Skip entities far off-screen to avoid useless draws.</summary>
@@ -338,30 +401,41 @@ namespace HighLight
 
         private void HandleToggle()
         {
-            var state = Keyboard.GetState();
-            if (state.IsKeyDown(_toggleKey) && _prevKeyboard.IsKeyUp(_toggleKey))
+            if (_toggle == null || !_toggle.JustPressed)
+                return;
+            if (!IsGameFocused())
+                return;
+
+            _enabled = !_enabled;
+            _config.Enabled = _enabled;
+            try
             {
-                _enabled = !_enabled;
-                _config.Enabled = _enabled;
-                try
-                {
-                    _config.Save(Path.Combine(_ctx.ConfigDirectory, "HighLight.json"));
-                }
-                catch { /* ignore */ }
-
-                var msg = _enabled ? "HighLight: ON" : "HighLight: OFF";
-                _ctx.Log.Info(msg);
-                try
-                {
-                    Main.NewText(msg, 255, 255, 0);
-                }
-                catch (Exception ex)
-                {
-                    _ctx.Log.Error("Main.NewText failed", ex);
-                }
+                _config.Save(Path.Combine(_ctx.ConfigDirectory, "HighLight.json"));
             }
+            catch { /* ignore */ }
 
-            _prevKeyboard = state;
+            var msg = _enabled ? _ctx.L.Get("Chat.On", "HighLight: ON") : _ctx.L.Get("Chat.Off", "HighLight: OFF");
+            _ctx.Log.Info(msg);
+            try
+            {
+                Main.NewText(msg, 255, 255, 0);
+            }
+            catch (Exception ex)
+            {
+                _ctx.Log.Error("Main.NewText failed", ex);
+            }
+        }
+
+        private static bool IsGameFocused()
+        {
+            try
+            {
+                return Main.instance == null || Main.instance.IsActive;
+            }
+            catch
+            {
+                return true;
+            }
         }
 
         private void MaybeAnnounce()
@@ -373,8 +447,9 @@ namespace HighLight
             try
             {
                 Main.NewText(
-                    "HighLight loaded. Press " + _toggleKey + " to toggle. Now: " +
-                    (_enabled ? "ON" : "OFF"),
+                    _ctx.L.Format("Chat.Ready",
+                        _toggle != null ? _toggle.CurrentBindingDisplay : "?",
+                        _enabled ? "ON" : "OFF"),
                     255, 200, 80);
             }
             catch (Exception ex)

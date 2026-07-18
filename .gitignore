@@ -11,3 +11,7 @@ src/TIMF.Bootstrap/build/
 *.log
 TIMF_HOME.txt
 .claude/
+
+# Actual runnable mods — built/deployed from here, not tracked by the framework repo.
+# (examples/ keeps reference copies that ARE tracked but are not built or deployed.)
+mods/

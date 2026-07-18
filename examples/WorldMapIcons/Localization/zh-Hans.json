@@ -1,0 +1,16 @@
+{
+  "Settings.Enabled": "启用",
+  "Settings.WhatToDraw": "绘制内容：",
+  "Settings.DrawNpcs": "NPC / 敌人",
+  "Settings.DrawItems": "物品",
+  "Settings.DrawProjectiles": "弹幕",
+  "Settings.Unexplored": "未探索区域：",
+  "Settings.NpcsUnexplored": "NPC（未探索）",
+  "Settings.ItemsUnexplored": "物品（未探索）",
+  "Settings.ProjectilesUnexplored": "弹幕（未探索）",
+  "Settings.NpcScale": "NPC 缩放",
+  "Settings.ItemScale": "物品缩放",
+  "Settings.ProjectileScale": "弹幕缩放",
+  "Settings.DrawDistance": "绘制距离（物块，-1=无限）",
+  "Settings.Hint": "打开地图（全屏或小地图）即可看到图标。"
+}

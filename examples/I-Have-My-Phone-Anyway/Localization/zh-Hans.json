@@ -1,0 +1,14 @@
+{
+  "Settings.Enabled": "启用",
+  "Settings.Hint": "显示手机信息面板。不会传送。",
+  "Settings.Categories": "信息类别：",
+  "Settings.Clock": "时钟（精确时间）",
+  "Settings.Position": "位置 + 深度",
+  "Settings.Weather": "天气 / 风力",
+  "Settings.Fishing": "渔力",
+  "Settings.Moon": "月相 / 事件",
+  "Settings.Rare": "附近稀有生物",
+  "Settings.Detection": "探测（敌人/宝藏/矿石/DPS）",
+  "Settings.Movement": "移动速度",
+  "Settings.Tip": "提示：将鼠标悬停在左上角信息图标可查看详情。"
+}

@@ -1,0 +1,15 @@
+{
+  "Settings.Enabled": "启用",
+  "Settings.WarnBelow": "警告阈值（生命%）",
+  "Settings.FullStrength": "最强效果（生命%）",
+  "Settings.EdgeThickness": "边缘厚度",
+  "Settings.MaxOpacity": "最大不透明度",
+  "Settings.PulseSpeed": "脉动速度",
+  "Settings.PulseAmount": "脉动幅度",
+  "Settings.Toggle": "快捷键：{0}",
+  "Settings.Unbound": "（未绑定）",
+  "Keybind.Toggle": "低血量警告 开关",
+  "Chat.On": "低血量警告：开",
+  "Chat.Off": "低血量警告：关",
+  "Chat.Ready": "低血量警告已加载。快捷键 {0}"
+}

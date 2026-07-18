@@ -1,0 +1,8 @@
+{
+  "Enabled": true,
+  "ToggleKey": "OemBackslash",
+  "ShowMessages": true,
+  "ShowIcons": true,
+  "ShareToChat": false,
+  "RecastDelay": 8
+}

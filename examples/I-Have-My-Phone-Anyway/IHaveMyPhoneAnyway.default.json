@@ -1,0 +1,11 @@
+{
+  "Enabled": true,
+  "Clock": true,
+  "PositionAndDepth": true,
+  "Weather": true,
+  "Fishing": true,
+  "MoonAndEvents": true,
+  "RareCreatures": true,
+  "Detection": true,
+  "Movement": true
+}

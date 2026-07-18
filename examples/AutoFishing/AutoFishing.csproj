@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net48</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <PlatformTarget>x86</PlatformTarget>
+    <AssemblyName>AutoFishing</AssemblyName>
+    <RootNamespace>AutoFishing</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\TIMF.Abstractions\TIMF.Abstractions.csproj" />
+  </ItemGroup>
+</Project>

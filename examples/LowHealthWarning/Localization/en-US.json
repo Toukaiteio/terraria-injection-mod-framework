@@ -1,0 +1,15 @@
+{
+  "Settings.Enabled": "Enabled",
+  "Settings.WarnBelow": "Warn below (HP%)",
+  "Settings.FullStrength": "Full strength (HP%)",
+  "Settings.EdgeThickness": "Edge thickness",
+  "Settings.MaxOpacity": "Max opacity",
+  "Settings.PulseSpeed": "Pulse speed",
+  "Settings.PulseAmount": "Pulse amount",
+  "Settings.Toggle": "Toggle: {0}",
+  "Settings.Unbound": "(unbound)",
+  "Keybind.Toggle": "Low Health Warning Toggle",
+  "Chat.On": "LowHealthWarning: ON",
+  "Chat.Off": "LowHealthWarning: OFF",
+  "Chat.Ready": "LowHealthWarning loaded. Toggle {0}"
+}

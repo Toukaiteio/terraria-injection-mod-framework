@@ -1,0 +1,23 @@
+{
+  "Settings.Enabled": "Enabled",
+  "Settings.Opacity": "Opacity",
+  "Settings.MarkerStyle": "Marker style:",
+  "Settings.HitboxStyle": "Snap to hitbox (rectangle)",
+  "Settings.OutlineThickness": "Outline thickness",
+  "Settings.FillHitbox": "Fill hitbox",
+  "Settings.Toggle": "Toggle: {0}",
+  "Settings.Unbound": "(unbound)",
+  "Keybind.Toggle": "HighLight Toggle",
+  "Chat.On": "HighLight: ON",
+  "Chat.Off": "HighLight: OFF",
+  "Chat.Ready": "HighLight loaded. Press {0} to toggle. Now: {1}"
+,
+  "Settings.FillOpacity": "Fill opacity",
+  "Settings.CircleScale": "Circle scale",
+  "Settings.VelocityLine": "Projectile velocity line:",
+  "Settings.LineLength": "Line length x",
+  "Settings.LineThickness": "Line thickness x",
+  "Settings.MaxThickness": "Max thickness",
+  "Settings.LineToEdge": "Line to screen edge",
+  "Settings.FadeEnds": "Fade line ends"
+}

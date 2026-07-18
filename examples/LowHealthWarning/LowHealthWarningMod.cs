@@ -12,15 +12,16 @@ namespace LowHealthWarning
     /// Screen-edge red vignette when local player HP is low.
     /// Only paints a thin fading border — center FOV stays clear.
     /// </summary>
-    [TimfMod]
+    [TimfMod(Id = "LowHealthWarning")]
     public sealed class LowHealthWarningMod : IMod, IModSettings
     {
+        private const string ToggleId = "LowHealthWarning.Toggle";
         private IModContext _ctx;
         private LowHealthWarningConfig _config;
         private Texture2D _pixel;
         private bool _enabled = true;
-        private Keys _toggleKey = Keys.Home;
-        private KeyboardState _prevKeyboard;
+        private IKeybind _toggle;
+        private IKeybindService _keybinds;
         private bool _announcePending;
         private float _pulsePhase;
 
@@ -33,15 +34,21 @@ namespace LowHealthWarning
             var cfgPath = Path.Combine(context.ConfigDirectory, "LowHealthWarning.json");
             _config = LowHealthWarningConfig.LoadOrCreate(cfgPath);
             _enabled = _config.Enabled;
-            _toggleKey = ParseKey(_config.ToggleKey, Keys.Home);
-            _prevKeyboard = Keyboard.GetState();
+            var defaultKey = ParseKey(_config.ToggleKey, Keys.Home);
+            if (context.Services.TryGetService(out _keybinds) && _keybinds != null)
+                _toggle = _keybinds.Register(ToggleId, context.L.Get("Keybind.Toggle", "Low Health Warning Toggle"), defaultKey);
+            else
+                context.Log.Error("IKeybindService unavailable — LowHealthWarning toggle will not work");
             _announcePending = true;
-            context.Log.Info("LowHealthWarning loaded. Toggle=" + _toggleKey + " threshold=" +
+            context.Log.Info("LowHealthWarning loaded. Toggle=" + ToggleId + " threshold=" +
                              _config.ThresholdRatio.ToString("0.##") + " config=" + cfgPath);
         }
 
         public void Unload()
         {
+            try { _keybinds?.Unregister(ToggleId); } catch { /* ignore */ }
+            _keybinds = null;
+            _toggle = null;
             try
             {
                 if (_pixel != null && !_pixel.IsDisposed)
@@ -56,22 +63,26 @@ namespace LowHealthWarning
         public void BuildSettingsUI(IImmediateModeUi ui)
         {
             var dirty = false;
+            var L = _ctx.L;
 
-            if (ui.Checkbox("Enabled", ref _config.Enabled))
+            if (ui.Checkbox(L.Get("Settings.Enabled", "Enabled"), ref _config.Enabled))
             {
                 _enabled = _config.Enabled;
                 dirty = true;
             }
 
-            dirty |= ui.SliderFloat("Warn below (HP%)", ref _config.ThresholdRatio, 0.05f, 1f);
-            dirty |= ui.SliderFloat("Full strength (HP%)", ref _config.FullStrengthRatio, 0.02f, 0.5f);
-            dirty |= ui.SliderFloat("Edge thickness", ref _config.MaxEdgeThickness, 16f, 160f);
-            dirty |= ui.SliderFloat("Max opacity", ref _config.MaxOpacity, 0.05f, 0.75f);
-            dirty |= ui.SliderFloat("Pulse speed", ref _config.PulseSpeed, 0f, 6f);
-            dirty |= ui.SliderFloat("Pulse amount", ref _config.PulseAmount, 0f, 0.5f);
+            dirty |= ui.SliderFloat(L.Get("Settings.WarnBelow", "Warn below (HP%)"), ref _config.ThresholdRatio, 0.05f, 1f);
+            dirty |= ui.SliderFloat(L.Get("Settings.FullStrength", "Full strength (HP%)"), ref _config.FullStrengthRatio, 0.02f, 0.5f);
+            dirty |= ui.SliderFloat(L.Get("Settings.EdgeThickness", "Edge thickness"), ref _config.MaxEdgeThickness, 16f, 160f);
+            dirty |= ui.SliderFloat(L.Get("Settings.MaxOpacity", "Max opacity"), ref _config.MaxOpacity, 0.05f, 0.75f);
+            dirty |= ui.SliderFloat(L.Get("Settings.PulseSpeed", "Pulse speed"), ref _config.PulseSpeed, 0f, 6f);
+            dirty |= ui.SliderFloat(L.Get("Settings.PulseAmount", "Pulse amount"), ref _config.PulseAmount, 0f, 0.5f);
 
             ui.Spacing();
-            ui.Text("Toggle key: " + _toggleKey);
+            var bind = _toggle != null && !string.IsNullOrEmpty(_toggle.CurrentBindingDisplay)
+                ? _toggle.CurrentBindingDisplay
+                : L.Get("Settings.Unbound", "(unbound)");
+            ui.Text(L.Format("Settings.Toggle", bind));
 
             if (dirty)
                 SaveConfig();
@@ -250,30 +261,41 @@ namespace LowHealthWarning
 
         private void HandleToggle()
         {
-            var state = Keyboard.GetState();
-            if (state.IsKeyDown(_toggleKey) && _prevKeyboard.IsKeyUp(_toggleKey))
+            if (_toggle == null || !_toggle.JustPressed)
+                return;
+            if (!IsGameFocused())
+                return;
+
+            _enabled = !_enabled;
+            _config.Enabled = _enabled;
+            try
             {
-                _enabled = !_enabled;
-                _config.Enabled = _enabled;
-                try
-                {
-                    _config.Save(Path.Combine(_ctx.ConfigDirectory, "LowHealthWarning.json"));
-                }
-                catch { /* ignore */ }
-
-                var msg = _enabled ? "LowHealthWarning: ON" : "LowHealthWarning: OFF";
-                _ctx.Log.Info(msg);
-                try
-                {
-                    Main.NewText(msg, 255, 120, 120);
-                }
-                catch (Exception ex)
-                {
-                    _ctx.Log.Error("Main.NewText failed", ex);
-                }
+                _config.Save(Path.Combine(_ctx.ConfigDirectory, "LowHealthWarning.json"));
             }
+            catch { /* ignore */ }
 
-            _prevKeyboard = state;
+            var msg = _enabled ? _ctx.L.Get("Chat.On", "LowHealthWarning: ON") : _ctx.L.Get("Chat.Off", "LowHealthWarning: OFF");
+            _ctx.Log.Info(msg);
+            try
+            {
+                Main.NewText(msg, 255, 120, 120);
+            }
+            catch (Exception ex)
+            {
+                _ctx.Log.Error("Main.NewText failed", ex);
+            }
+        }
+
+        private static bool IsGameFocused()
+        {
+            try
+            {
+                return Main.instance == null || Main.instance.IsActive;
+            }
+            catch
+            {
+                return true;
+            }
         }
 
         private void MaybeAnnounce()
@@ -284,10 +306,7 @@ namespace LowHealthWarning
             _announcePending = false;
             try
             {
-                Main.NewText(
-                    "LowHealthWarning loaded. Toggle " + _toggleKey +
-                    " · warn below " + (int)(_config.ThresholdRatio * 100) + "% HP",
-                    255, 140, 140);
+                Main.NewText(_ctx.L.Format("Chat.Ready", _toggle != null ? _toggle.CurrentBindingDisplay : "?"), 255, 120, 120);
             }
             catch (Exception ex)
             {

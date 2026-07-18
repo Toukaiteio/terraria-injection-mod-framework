@@ -1,0 +1,13 @@
+{
+  "Settings.Enabled": "启用",
+  "Settings.CursorSize": "光标大小",
+  "Settings.RingDistance": "环绕距离",
+  "Settings.HideOnScreen": "在屏幕内时隐藏",
+  "Settings.SkipPillars": "跳过天界柱",
+  "Settings.Toggle": "快捷键：{0}",
+  "Settings.Unbound": "（未绑定）",
+  "Keybind.Toggle": "Boss 光标 开关",
+  "Chat.On": "Boss 光标：开",
+  "Chat.Off": "Boss 光标：关",
+  "Chat.Ready": "Boss 光标已加载。按 {0} 切换。当前：{1}"
+}

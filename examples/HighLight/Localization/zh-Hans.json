@@ -1,0 +1,23 @@
+{
+  "Settings.Enabled": "启用",
+  "Settings.Opacity": "不透明度",
+  "Settings.MarkerStyle": "标记样式：",
+  "Settings.HitboxStyle": "贴合受击框（矩形）",
+  "Settings.OutlineThickness": "描边粗细",
+  "Settings.FillHitbox": "填充受击框",
+  "Settings.Toggle": "快捷键：{0}",
+  "Settings.Unbound": "（未绑定）",
+  "Keybind.Toggle": "高亮 开关",
+  "Chat.On": "高亮：开",
+  "Chat.Off": "高亮：关",
+  "Chat.Ready": "高亮已加载。按 {0} 切换。当前：{1}"
+,
+  "Settings.FillOpacity": "填充不透明度",
+  "Settings.CircleScale": "圆形缩放",
+  "Settings.VelocityLine": "弹幕速度线：",
+  "Settings.LineLength": "线长度 ×",
+  "Settings.LineThickness": "线粗细 ×",
+  "Settings.MaxThickness": "最大粗细",
+  "Settings.LineToEdge": "线延伸到屏幕边缘",
+  "Settings.FadeEnds": "线端淡出"
+}

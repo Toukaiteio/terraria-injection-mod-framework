@@ -1,0 +1,19 @@
+{
+  "Settings.Enabled": "Enabled",
+  "Settings.AutoClick": "Auto click",
+  "Settings.TargetTypes": "Target types",
+  "Settings.Hostile": "Hostile enemies",
+  "Settings.Bosses": "Bosses",
+  "Settings.Critters": "Critters",
+  "Settings.TownNpcs": "Town NPCs",
+  "Settings.IgnoreWalls": "Ignore walls (line of sight)",
+  "Settings.Range": "Range",
+  "Settings.Toggle": "Toggle: {0}",
+  "Settings.Unbound": "(unbound)",
+  "Settings.CurrentTarget": "Current target: NPC #{0}",
+  "Settings.NoTarget": "No target in range",
+  "Keybind.Toggle": "Auto Aim Toggle",
+  "Chat.On": "AutoAim: ON",
+  "Chat.Off": "AutoAim: OFF",
+  "Chat.Ready": "AutoAim ready. Toggle {0}. Now: {1}"
+}

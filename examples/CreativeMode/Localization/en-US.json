@@ -1,0 +1,20 @@
+{
+  "Settings.Title": "Item browser with search + give.",
+  "Settings.Toggle": "Toggle: {0}",
+  "Settings.Unbound": "(unbound)",
+  "Settings.Indexed": "{0} items indexed",
+  "UI.DbNotReady": "Item database not ready (enter a world first).",
+  "UI.Matches": "{0} match(es)",
+  "UI.Coins": "Coins (stack 9999):",
+  "UI.NoMatch": "No items match your search.",
+  "UI.Selected": "Selected: #{0}  {1}",
+  "UI.SelectHint": "Select an item from the list above.",
+  "Chat.GaveCoins": "Gave 9999x {0}",
+  "Chat.FailedCoins": "Failed to give {0}",
+  "Chat.Gave": "Gave {0}x {1}",
+  "Chat.Failed": "Failed to give {0} (see log)",
+  "Chat.Open": "Creative Mode: open ({0})",
+  "Chat.Closed": "Creative Mode: closed ({0})",
+  "Chat.Ready": "Creative Mode ready — press {0} for the item browser",
+  "Keybind.Toggle": "Creative Mode Toggle"
+}

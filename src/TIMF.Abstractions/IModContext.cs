@@ -27,5 +27,11 @@ namespace TIMF.Abstractions
 
         /// <summary>Cross-mod service registry (UI, future shared libs).</summary>
         IServiceRegistry Services { get; }
+
+        /// <summary>
+        /// This mod's localization catalog (files under <c>Localization/*.json</c>).
+        /// Automatically follows the game's language setting.
+        /// </summary>
+        IModLocalization L { get; }
     }
 }

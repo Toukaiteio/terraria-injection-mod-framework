@@ -12,19 +12,21 @@ namespace BossCursor
     /// Independent sample mod: arrows around the local player pointing at active bosses.
     /// Behavior inspired by the classic Boss Cursor client mod (not a source port).
     /// </summary>
-    [TimfMod]
+    [TimfMod(Id = "BossCursor")]
     public sealed class BossCursorMod : IMod, IModSettings
     {
         // NPCID.LunarTower* (1.4.5.6)
         private static readonly int[] PillarTypes = { 422, 493, 507, 517 };
+        private const string ToggleId = "BossCursor.Toggle";
 
         private IModContext _ctx;
         private BossCursorConfig _config;
         private Texture2D _cursorTex;
         private bool _enabled = true;
-        private Keys _toggleKey = Keys.Insert;
-        private KeyboardState _prevKeyboard;
+        private IKeybind _toggle;
+        private IKeybindService _keybinds;
         private bool _textureLoadAttempted;
+        private bool _announcePending;
 
         public string Name => "BossCursor";
         public string Version => "1.0.0";
@@ -35,18 +37,22 @@ namespace BossCursor
             var cfgPath = Path.Combine(context.ConfigDirectory, "BossCursor.json");
             _config = BossCursorConfig.LoadOrCreate(cfgPath);
             _enabled = _config.Enabled;
-            _toggleKey = ParseKey(_config.ToggleKey, Keys.Insert);
-            _prevKeyboard = Keyboard.GetState();
-            context.Log.Info("BossCursor loaded. Toggle=" + _toggleKey + " config=" + cfgPath);
 
-            // Deferred chat notice once we are in-world (Main may still be on menu at Load).
+            var defaultKey = ParseKey(_config.ToggleKey, Keys.Insert);
+            if (context.Services.TryGetService(out _keybinds) && _keybinds != null)
+                _toggle = _keybinds.Register(ToggleId, context.L.Get("Keybind.Toggle", "Boss Cursor Toggle"), defaultKey);
+            else
+                context.Log.Error("IKeybindService unavailable — BossCursor toggle will not work");
+
+            context.Log.Info("BossCursor loaded. Toggle=" + ToggleId + " default=" + defaultKey + " config=" + cfgPath);
             _announcePending = true;
         }
 
-        private bool _announcePending;
-
         public void Unload()
         {
+            try { _keybinds?.Unregister(ToggleId); } catch { /* ignore */ }
+            _keybinds = null;
+            _toggle = null;
             try
             {
                 if (_cursorTex != null && !_cursorTex.IsDisposed)
@@ -60,20 +66,24 @@ namespace BossCursor
         public void BuildSettingsUI(IImmediateModeUi ui)
         {
             var dirty = false;
+            var L = _ctx.L;
 
-            if (ui.Checkbox("Enabled", ref _config.Enabled))
+            if (ui.Checkbox(L.Get("Settings.Enabled", "Enabled"), ref _config.Enabled))
             {
                 _enabled = _config.Enabled;
                 dirty = true;
             }
 
-            dirty |= ui.SliderFloat("Cursor size", ref _config.CursorSize, 0.2f, 3f);
-            dirty |= ui.SliderFloat("Ring distance", ref _config.CursorDistance, 16f, 400f);
-            dirty |= ui.Checkbox("Hide when on screen", ref _config.HideOnScreen);
-            dirty |= ui.Checkbox("Skip pillars", ref _config.BlackListPillars);
+            dirty |= ui.SliderFloat(L.Get("Settings.CursorSize", "Cursor size"), ref _config.CursorSize, 0.2f, 3f);
+            dirty |= ui.SliderFloat(L.Get("Settings.RingDistance", "Ring distance"), ref _config.CursorDistance, 16f, 400f);
+            dirty |= ui.Checkbox(L.Get("Settings.HideOnScreen", "Hide when on screen"), ref _config.HideOnScreen);
+            dirty |= ui.Checkbox(L.Get("Settings.SkipPillars", "Skip pillars"), ref _config.BlackListPillars);
 
             ui.Spacing();
-            ui.Text("Toggle key: " + _toggleKey);
+            var bind = _toggle != null && !string.IsNullOrEmpty(_toggle.CurrentBindingDisplay)
+                ? _toggle.CurrentBindingDisplay
+                : L.Get("Settings.Unbound", "(unbound)");
+            ui.Text(L.Format("Settings.Toggle", bind));
 
             if (dirty)
                 SaveConfig();
@@ -105,10 +115,8 @@ namespace BossCursor
                     _announcePending = false;
                     try
                     {
-                        Main.NewText(
-                            "BossCursor loaded. Press " + _toggleKey + " to toggle. Now: " +
-                            (_enabled ? "ON" : "OFF"),
-                            100, 200, 255);
+                        var bind = _toggle != null ? _toggle.CurrentBindingDisplay : "?";
+                        Main.NewText(_ctx.L.Format("Chat.Ready", bind, _enabled ? "ON" : "OFF"), 100, 200, 255);
                     }
                     catch (Exception ex)
                     {
@@ -240,30 +248,43 @@ namespace BossCursor
 
         private void HandleToggle()
         {
-            var state = Keyboard.GetState();
-            if (state.IsKeyDown(_toggleKey) && _prevKeyboard.IsKeyUp(_toggleKey))
+            if (_toggle == null || !_toggle.JustPressed)
+                return;
+            if (!IsGameFocused())
+                return;
+            // Don't toggle while typing in TIMF text fields.
+            try
             {
-                _enabled = !_enabled;
-                _config.Enabled = _enabled;
-                try
-                {
-                    _config.Save(Path.Combine(_ctx.ConfigDirectory, "BossCursor.json"));
-                }
-                catch { /* ignore */ }
-
-                var msg = _enabled ? "BossCursor: ON" : "BossCursor: OFF";
-                _ctx.Log.Info(msg);
-                try
-                {
-                    // In-game chat / combat text line
-                    Main.NewText(msg, 100, 200, 255);
-                }
-                catch (Exception ex)
-                {
-                    _ctx.Log.Error("Main.NewText failed", ex);
-                }
+                IImmediateModeUi ui;
+                if (_ctx != null && _ctx.Services.TryGetService(out ui) && ui != null && ui.WantCaptureKeyboard)
+                    return;
             }
-            _prevKeyboard = state;
+            catch { /* ignore */ }
+
+            _enabled = !_enabled;
+            _config.Enabled = _enabled;
+            try
+            {
+                _config.Save(Path.Combine(_ctx.ConfigDirectory, "BossCursor.json"));
+            }
+            catch { /* ignore */ }
+
+            var msg = _enabled ? _ctx.L.Get("Chat.On", "BossCursor: ON") : _ctx.L.Get("Chat.Off", "BossCursor: OFF");
+            _ctx.Log.Info(msg);
+            try { Main.NewText(msg, 100, 200, 255); }
+            catch (Exception ex) { _ctx.Log.Error("Main.NewText failed", ex); }
+        }
+
+        private static bool IsGameFocused()
+        {
+            try
+            {
+                return Main.instance == null || Main.instance.IsActive;
+            }
+            catch
+            {
+                return true;
+            }
         }
 
         private void EnsureTexture()

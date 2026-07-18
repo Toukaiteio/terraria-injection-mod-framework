@@ -27,6 +27,18 @@ namespace HighLight
         public int MaxVelocityLineThickness = 6;
         public bool FadeLineEnds = true;
 
+        /// <summary>true = draw a rectangle snapped to the entity Hitbox (default); false = old circle style.</summary>
+        public bool HitboxStyle = true;
+
+        /// <summary>Outline thickness of the hitbox rectangle, in pixels.</summary>
+        public int HitboxThickness = 2;
+
+        /// <summary>Fill the hitbox with a faint tint so small boxes stay visible.</summary>
+        public bool FillHitbox = true;
+
+        /// <summary>Fill alpha as a fraction of outline alpha (0..1).</summary>
+        public float FillOpacity = 0.18f;
+
         /// <summary>1 = every frame; 2 = original HighLight interval.</summary>
         public int DrawEveryNFrames = 1;
 
@@ -68,6 +80,10 @@ namespace HighLight
                 cfg.VelocityLineThicknessMultiplier = ReadFloat(text, "VelocityLineThicknessMultiplier", cfg.VelocityLineThicknessMultiplier);
                 cfg.MaxVelocityLineThickness = ReadInt(text, "MaxVelocityLineThickness", cfg.MaxVelocityLineThickness);
                 cfg.FadeLineEnds = ReadBool(text, "FadeLineEnds", cfg.FadeLineEnds);
+                cfg.HitboxStyle = ReadBool(text, "HitboxStyle", cfg.HitboxStyle);
+                cfg.HitboxThickness = Math.Max(1, ReadInt(text, "HitboxThickness", cfg.HitboxThickness));
+                cfg.FillHitbox = ReadBool(text, "FillHitbox", cfg.FillHitbox);
+                cfg.FillOpacity = ReadFloat(text, "FillOpacity", cfg.FillOpacity);
                 cfg.DrawEveryNFrames = Math.Max(1, ReadInt(text, "DrawEveryNFrames", cfg.DrawEveryNFrames));
             }
             catch
@@ -99,6 +115,10 @@ namespace HighLight
             sb.AppendLine("  \"VelocityLineThicknessMultiplier\": " + VelocityLineThicknessMultiplier.ToString(CultureInfo.InvariantCulture) + ",");
             sb.AppendLine("  \"MaxVelocityLineThickness\": " + MaxVelocityLineThickness + ",");
             sb.AppendLine("  \"FadeLineEnds\": " + (FadeLineEnds ? "true" : "false") + ",");
+            sb.AppendLine("  \"HitboxStyle\": " + (HitboxStyle ? "true" : "false") + ",");
+            sb.AppendLine("  \"HitboxThickness\": " + HitboxThickness + ",");
+            sb.AppendLine("  \"FillHitbox\": " + (FillHitbox ? "true" : "false") + ",");
+            sb.AppendLine("  \"FillOpacity\": " + FillOpacity.ToString(CultureInfo.InvariantCulture) + ",");
             sb.AppendLine("  \"DrawEveryNFrames\": " + DrawEveryNFrames);
             sb.AppendLine("}");
             File.WriteAllText(path, sb.ToString(), Encoding.UTF8);

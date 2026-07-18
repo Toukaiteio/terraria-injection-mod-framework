@@ -1,4 +1,5 @@
-# Build TIMF managed projects + native bootstrap, publish to ./dist
+# Build the TIMF framework (managed projects + native bootstrap) and publish to ./dist.
+# This does NOT build the mods — run build-mods.ps1 for those.
 $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $Root
@@ -6,24 +7,14 @@ Set-Location $Root
 $Dist = Join-Path $Root "dist"
 $Configuration = if ($args.Count -gt 0) { $args[0] } else { "Release" }
 
-Write-Host "==> Building managed projects ($Configuration)"
+Write-Host "==> Building framework projects ($Configuration)"
 dotnet build (Join-Path $Root "TIMF.sln") -c $Configuration
 if ($LASTEXITCODE -ne 0) { throw "dotnet build failed" }
 
 $abs = Join-Path $Root "src\TIMF.Abstractions\bin\$Configuration\net48\TIMF.Abstractions.dll"
 $core = Join-Path $Root "src\TIMF.Core\bin\$Configuration\net48\TIMF.Core.dll"
 $launcher = Join-Path $Root "src\TIMF.Launcher\bin\$Configuration\net48\TIMF.Launcher.exe"
-
-# Each mod is published into its own folder: dist\Mods\<ModId>\ (dll + assets).
-# Assets: extra files copied alongside the dll inside that folder.
-$modArtifacts = @(
-  @{ Id = "BossCursor";       Dll = "examples\BossCursor\bin\$Configuration\net48\BossCursor.dll";
-     Assets = @("examples\BossCursor\Cursor.png") },
-  @{ Id = "HighLight";        Dll = "examples\HighLight\bin\$Configuration\net48\HighLight.dll"; Assets = @() },
-  @{ Id = "LowHealthWarning"; Dll = "examples\LowHealthWarning\bin\$Configuration\net48\LowHealthWarning.dll"; Assets = @() },
-  @{ Id = "TIMF.UI";          Dll = "libs\TIMF.UI\bin\$Configuration\net48\TIMF.UI.dll"; Assets = @() },
-  @{ Id = "ModSettingsHub";   Dll = "examples\ModSettingsHub\bin\$Configuration\net48\ModSettingsHub.dll"; Assets = @() }
-)
+$timfUi = Join-Path $Root "libs\TIMF.UI\bin\$Configuration\net48\TIMF.UI.dll"
 
 New-Item -ItemType Directory -Force -Path $Dist | Out-Null
 New-Item -ItemType Directory -Force -Path (Join-Path $Dist "Mods") | Out-Null
@@ -41,42 +32,14 @@ Get-ChildItem $coreDir -Filter "*.dll" | ForEach-Object {
   }
 }
 
-foreach ($m in $modArtifacts) {
-  $src = Join-Path $Root $m.Dll
-  if (-not (Test-Path $src)) {
-    Write-Warning "Missing mod artifact: $src"
-    continue
-  }
-
-  $modDir = Join-Path $Dist ("Mods\" + $m.Id)
-  New-Item -ItemType Directory -Force -Path $modDir | Out-Null
-  Copy-Item $src (Join-Path $modDir ([IO.Path]::GetFileName($src))) -Force
-
-  foreach ($asset in $m.Assets) {
-    $assetSrc = Join-Path $Root $asset
-    if (Test-Path $assetSrc) {
-      Copy-Item $assetSrc (Join-Path $modDir ([IO.Path]::GetFileName($assetSrc))) -Force
-    } else {
-      Write-Warning "Missing asset for $($m.Id): $assetSrc"
-    }
-  }
+# TIMF.UI is a framework-shipped library mod -> deploy into Mods\TIMF.UI\
+if (Test-Path $timfUi) {
+  $uiDir = Join-Path $Dist "Mods\TIMF.UI"
+  New-Item -ItemType Directory -Force -Path $uiDir | Out-Null
+  Copy-Item $timfUi (Join-Path $uiDir "TIMF.UI.dll") -Force
+} else {
+  Write-Warning "Missing TIMF.UI artifact: $timfUi"
 }
-
-function Install-DefaultConfig([string]$src, [string]$dst) {
-  if ((Test-Path $src) -and -not (Test-Path $dst)) {
-    Copy-Item $src $dst
-  }
-}
-
-Install-DefaultConfig `
-  (Join-Path $Root "examples\BossCursor\BossCursor.default.json") `
-  (Join-Path $Dist "config\BossCursor.json")
-Install-DefaultConfig `
-  (Join-Path $Root "examples\HighLight\HighLight.default.json") `
-  (Join-Path $Dist "config\HighLight.json")
-Install-DefaultConfig `
-  (Join-Path $Root "examples\LowHealthWarning\LowHealthWarning.default.json") `
-  (Join-Path $Dist "config\LowHealthWarning.json")
 
 Write-Host "==> Building native Bootstrap (MinGW i686)"
 $MingwGpp = "D:\i686-8.1.0-release-posix-dwarf-rt_v6-rev0\mingw32\bin\g++.exe"
@@ -106,5 +69,6 @@ if (-not $MingwGpp -or -not (Test-Path $MingwGpp)) {
 }
 
 Write-Host ""
-Write-Host "Deploy folder: $Dist"
-Write-Host "Run: $Dist\TIMF.Launcher.exe"
+Write-Host "Framework deployed to: $Dist"
+Write-Host "Next: .\build-mods.ps1   (builds every mod under .\mods\ into dist\Mods\)"
+Write-Host "Run:  $Dist\TIMF.Launcher.exe"

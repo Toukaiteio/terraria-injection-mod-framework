@@ -1,0 +1,14 @@
+{
+  "Window.Title": "模组设置",
+  "UI.NoMods": "尚未注册任何模组。",
+  "UI.LoadedMods": "已加载模组（{0}）",
+  "UI.SelectHint": "选择一个模组以打开其设置窗口。",
+  "UI.SettingsFor": "设置：{0}",
+  "UI.NoSettings": "该模组没有设置界面。",
+  "Chat.Open": "模组设置：打开（{0}）",
+  "Chat.Closed": "模组设置：关闭（{0}）",
+  "Chat.Ready": "按 {0} 打开模组设置窗口",
+  "Keybind.Toggle": "模组设置 开关"
+,
+  "UI.OpenSettings": "打开设置"
+}

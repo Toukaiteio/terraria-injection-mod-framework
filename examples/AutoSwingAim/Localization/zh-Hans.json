@@ -1,0 +1,9 @@
+{
+  "Settings.Title": "优化原版「全部武器自动挥舞」时的朝向。",
+  "Settings.Hint1": "自动复用只会重复攻击；经典近战（useStyle 1）",
+  "Settings.Hint2": "按住时不会重新朝向鼠标。鞭子走射击路径，本身已正常。",
+  "Settings.Enabled": "启用",
+  "Settings.ContinuousTurn": "持续转向（挥舞中跟随鼠标）",
+  "Settings.AllowMoveTurn": "挥舞时允许 A/D 转向（useTurn）",
+  "Settings.OnlyWhenAutoSwing": "仅在「设置 → 全部武器自动挥舞」开启时生效。"
+}

@@ -12,5 +12,9 @@
   "VelocityLineThicknessMultiplier": 0.8,
   "MaxVelocityLineThickness": 6,
   "FadeLineEnds": true,
+  "HitboxStyle": true,
+  "HitboxThickness": 2,
+  "FillHitbox": true,
+  "FillOpacity": 0.18,
   "DrawEveryNFrames": 1
 }

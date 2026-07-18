@@ -1,0 +1,13 @@
+{
+  "Settings.Enabled": "Enabled",
+  "Settings.CursorSize": "Cursor size",
+  "Settings.RingDistance": "Ring distance",
+  "Settings.HideOnScreen": "Hide when on screen",
+  "Settings.SkipPillars": "Skip pillars",
+  "Settings.Toggle": "Toggle: {0}",
+  "Settings.Unbound": "(unbound)",
+  "Keybind.Toggle": "Boss Cursor Toggle",
+  "Chat.On": "BossCursor: ON",
+  "Chat.Off": "BossCursor: OFF",
+  "Chat.Ready": "BossCursor loaded. Press {0} to toggle. Now: {1}"
+}

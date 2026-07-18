@@ -10,5 +10,12 @@ namespace TIMF.Abstractions
     {
         void NewFrame(GameTime gameTime);
         void Render();
+
+        /// <summary>
+        /// Block vanilla mouse click-through for TIMF windows that were open last frame.
+        /// Must run before the game consumes the click (e.g. DrawMenu Prefix / early Update).
+        /// Draw-time capture alone is too late on the main menu.
+        /// </summary>
+        void EarlyBlockGameInput();
     }
 }

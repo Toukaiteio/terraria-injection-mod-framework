@@ -1,0 +1,11 @@
+{
+  "Settings.Title": "自动快捷治疗 / 魔力（客户端）。",
+  "Settings.Hint": "使用原版 QuickHeal / QuickMana 的物品选择逻辑。",
+  "Settings.AutoHeal": "自动快捷治疗",
+  "Settings.HealBelow": "生命 ≤ % 时治疗",
+  "Settings.HealThreshold": "当前阈值：最大生命的 {0}",
+  "Settings.AutoMana": "自动快捷魔力",
+  "Settings.ManaBelow": "魔力 ≤ % 时恢复",
+  "Settings.ManaThreshold": "当前阈值：最大魔力的 {0}",
+  "Settings.Respects": "遵循药水病，并使用背包/虚空袋中的物品。"
+}

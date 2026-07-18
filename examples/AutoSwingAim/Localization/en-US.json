@@ -1,0 +1,9 @@
+{
+  "Settings.Title": "Improves facing under vanilla Auto-swing-all.",
+  "Settings.Hint1": "Auto-reuse only re-triggers attacks; classic melee (useStyle 1)",
+  "Settings.Hint2": "never re-faces the mouse mid-hold. Whips already do via shoot path.",
+  "Settings.Enabled": "Enabled",
+  "Settings.ContinuousTurn": "Continuous turn (follow mouse mid-swing)",
+  "Settings.AllowMoveTurn": "Allow A/D turn while swinging (useTurn)",
+  "Settings.OnlyWhenAutoSwing": "Only active while Settings → Auto swing for all weapons is on."
+}

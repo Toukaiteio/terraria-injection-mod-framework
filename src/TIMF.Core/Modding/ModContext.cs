@@ -12,6 +12,7 @@ namespace TIMF.Core.Modding
         public string ContentDirectory { get; }
         public string ModAssemblyPath { get; }
         public IServiceRegistry Services { get; }
+        public IModLocalization L { get; }
 
         public ModContext(
             ILogger log,
@@ -19,7 +20,8 @@ namespace TIMF.Core.Modding
             string configDir,
             string modDir,
             string assemblyPath,
-            IServiceRegistry services)
+            IServiceRegistry services,
+            IModLocalization localization)
         {
             Log = log;
             HomeDirectory = home;
@@ -27,6 +29,7 @@ namespace TIMF.Core.Modding
             ModDirectory = modDir;
             ModAssemblyPath = assemblyPath;
             Services = services;
+            L = localization;
 
             // Prefer a dedicated Content/ subfolder when present, else the mod folder itself.
             var content = Path.Combine(modDir ?? "", "Content");

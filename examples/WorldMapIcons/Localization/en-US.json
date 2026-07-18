@@ -1,0 +1,16 @@
+{
+  "Settings.Enabled": "Enabled",
+  "Settings.WhatToDraw": "What to draw:",
+  "Settings.DrawNpcs": "NPCs / enemies",
+  "Settings.DrawItems": "Items",
+  "Settings.DrawProjectiles": "Projectiles",
+  "Settings.Unexplored": "Draw in unexplored areas:",
+  "Settings.NpcsUnexplored": "NPCs (unexplored)",
+  "Settings.ItemsUnexplored": "Items (unexplored)",
+  "Settings.ProjectilesUnexplored": "Projectiles (unexplored)",
+  "Settings.NpcScale": "NPC scale",
+  "Settings.ItemScale": "Item scale",
+  "Settings.ProjectileScale": "Projectile scale",
+  "Settings.DrawDistance": "Draw distance (tiles, -1=∞)",
+  "Settings.Hint": "Open the map (fullscreen or minimap) to see icons."
+}

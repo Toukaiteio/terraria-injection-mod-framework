@@ -29,18 +29,26 @@ namespace TIMF.UI
         private bool _fontResolved;
         private bool _fontFailed;
 
-        // Cursor redraw via reflection (Main.DrawCursor / DrawThickCursor)
-        private bool _cursorResolved;
-        private MethodInfo _drawCursor;
-        private MethodInfo _drawThickCursor;
-        private PropertyInfo _uiScaleMatrixProp;
-        private SamplerState _cursorSampler;
-        private bool _loggedCursorFail;
+        // UI scale handling (Main.UIScaleMatrix space) so we align with the vanilla cursor.
+        private float _uiScale = 1f;
+        private Vector2 _mouseUi;
+        private Vector2 _prevMouseUi;
+        private bool _uiScaleResolved;
+        private MemberInfo _uiScaleField;
+        private PropertyInfo _uiMatrixProp;
+        private bool _uiMatrixTried;
+        private bool _loggedMatrixFail;
 
         private readonly Dictionary<string, WindowState> _windows = new Dictionary<string, WindowState>();
         private readonly List<DrawCmd> _cmds = new List<DrawCmd>(256);
+        // Window rects for THIS frame (filled during Begin) and LAST frame (used by EarlyBlockGameInput).
+        private readonly List<Rectangle> _frameWindowRects = new List<Rectangle>(8);
+        private readonly List<Rectangle> _blockWindowRects = new List<Rectangle>(8);
+        private RasterizerState _scissorRaster;
+        private bool _loggedScissorFail;
 
         private WindowState _cur;
+        private ChildState _child;
         private float _cursorX;
         private float _cursorY;
         private float _lineStartX;
@@ -48,17 +56,43 @@ namespace TIMF.UI
         private float _contentMaxX;
         private bool _sameLine;
         private float _sameLineSpacing;
+        private float _lastItemMaxX;
+        private float _lastItemY;
+        private float _lastItemH;
+        private bool _hasLastItem;
+
+        // Saved layout when entering a child region.
+        private float _savedCursorX;
+        private float _savedCursorY;
+        private float _savedLineStartX;
+        private float _savedLineHeight;
+        private float _savedContentMaxX;
+        private bool _savedSameLine;
+        private float _savedSameLineSpacing;
 
         private MouseState _mouse;
         private MouseState _prevMouse;
         private KeyboardState _keyboard;
         private KeyboardState _prevKeyboard;
         private bool _wantCapture;
+        private bool _wantCaptureKeyboard;
+        private bool _anyWindowOpen;
         private bool _lmbClick;
         private bool _lmbDown;
         private bool _lmbReleased;
         private string _activeId;
         private string _hotId;
+        private string _focusedInputId;
+        // Track game flags we set so we can release them when UI is gone.
+        // Main.blockInput is sticky: Player.Update skips CopyInto while true → no movement/use.
+        // Main.blockMouse is also sticky in-world (vanilla only clears it in a few UI paths).
+        private bool _ownedBlockInput;
+        private bool _wantBlockInputThisFrame;
+        private bool _ownedBlockMouse;
+        private double _keyRepeatTimer;
+        private Keys _lastRepeatKey = Keys.None;
+        private double _frameSeconds = 1.0 / 60.0;
+        private double _caretBlink;
         private int _windowStack;
         private float _nextWindowPosX = 40f;
         private float _nextWindowPosY = 80f;
@@ -67,6 +101,11 @@ namespace TIMF.UI
         private const float TitleH = 26f;
         private const float RowH = 22f;
         private const float WidgetW = 200f;
+        private const float DefaultWindowW = 360f;
+        private const float ScrollbarW = 10f;
+        private const float ChildPad = 4f;
+        private const float CollapseBtnSize = 16f;
+        private const float CloseBtnSize = 16f;
 
         private static readonly Color ColWinBg = new Color(18, 18, 24, 220);
         private static readonly Color ColTitle = new Color(40, 44, 70, 240);
@@ -78,6 +117,9 @@ namespace TIMF.UI
         private static readonly Color ColSliderBg = new Color(30, 32, 48, 255);
         private static readonly Color ColSliderFill = new Color(90, 120, 210, 255);
         private static readonly Color ColCheck = new Color(70, 160, 90, 255);
+        private static readonly Color ColChildBg = new Color(12, 12, 18, 180);
+        private static readonly Color ColScrollBg = new Color(25, 26, 36, 220);
+        private static readonly Color ColScrollThumb = new Color(90, 100, 150, 255);
 
         public ImmediateModeUi(ILogger log)
         {
@@ -85,18 +127,27 @@ namespace TIMF.UI
         }
 
         public bool IsReady => _fontResolved && !_fontFailed && _pixel != null;
-        public Vector2 MousePosition => new Vector2(_mouse.X, _mouse.Y);
+        public Vector2 MousePosition => _mouseUi;
         public bool IsMouseClicked => _lmbClick;
         public bool WantCaptureMouse => _wantCapture;
+        public bool WantCaptureKeyboard => _wantCaptureKeyboard;
+        public bool AnyWindowOpen => _anyWindowOpen;
+        public bool IsGameFocused => UiNative.IsOurProcessFocused();
 
         public void NewFrame(GameTime gameTime)
         {
             EnsureResources();
             _cmds.Clear();
+            _frameWindowRects.Clear();
             _cur = null;
+            _child = null;
             _windowStack = 0;
             _wantCapture = false;
+            _wantCaptureKeyboard = false;
+            _anyWindowOpen = false;
             _hotId = null;
+            // InputText re-asserts this each frame while focused; if nothing does, we release.
+            _wantBlockInputThisFrame = false;
 
             _prevMouse = _mouse;
             _prevKeyboard = _keyboard;
@@ -110,6 +161,16 @@ namespace TIMF.UI
                 // keep previous
             }
 
+            _frameSeconds = gameTime != null ? gameTime.ElapsedGameTime.TotalSeconds : 1.0 / 60.0;
+
+            // The game renders UI (and its cursor) under Main.UIScaleMatrix = CreateScale(uiScale).
+            // We draw in that same space so our windows line up with the vanilla cursor at any UI
+            // scale. XNA Mouse is in physical pixels, so convert to UI-logical coords by / uiScale.
+            _uiScale = ResolveUiScale();
+            var inv = _uiScale > 0.01f ? 1f / _uiScale : 1f;
+            _mouseUi = new Vector2(_mouse.X * inv, _mouse.Y * inv);
+            _prevMouseUi = new Vector2(_prevMouse.X * inv, _prevMouse.Y * inv);
+
             _lmbDown = _mouse.LeftButton == ButtonState.Pressed;
             _lmbClick = _lmbDown && _prevMouse.LeftButton == ButtonState.Released;
             _lmbReleased = !_lmbDown && _prevMouse.LeftButton == ButtonState.Pressed;
@@ -118,8 +179,28 @@ namespace TIMF.UI
                 _activeId = null;
         }
 
+        /// <summary>
+        /// Flush recorded draw commands. Prefer calling from a Harmony prefix on
+        /// Main.DrawCursor so the vanilla cursor stays on top (no custom cursor).
+        /// Safely Ends any open batch first — interface layers often leave SpriteBatch begun.
+        /// Child regions use GPU scissor so scrolled rows cannot paint past the viewport.
+        /// </summary>
         public void Render()
         {
+            // Snapshot window rects for next-frame early blocking (DrawMenu runs before DrawCursor).
+            _blockWindowRects.Clear();
+            for (var i = 0; i < _frameWindowRects.Count; i++)
+                _blockWindowRects.Add(_frameWindowRects[i]);
+
+            // After all Begin/widgets this frame: drop focus if every window is closed, and
+            // release any sticky Main.blockInput / blockMouse we own.
+            FinalizeInputOwnership();
+
+            if (_wantCapture)
+                ApplyInputBlock();
+            else
+                ReleaseOwnedBlockMouse();
+
             if (_cmds.Count == 0 || Main.spriteBatch == null)
                 return;
 
@@ -130,38 +211,111 @@ namespace TIMF.UI
                     return;
 
                 var sb = Main.spriteBatch;
-                sb.Begin(
-                    SpriteSortMode.Deferred,
-                    BlendState.AlphaBlend,
-                    SamplerState.PointClamp,
-                    DepthStencilState.None,
-                    RasterizerState.CullNone,
-                    null,
-                    Matrix.Identity);
+                GraphicsDevice device = null;
                 try
                 {
-                    for (var i = 0; i < _cmds.Count; i++)
+                    if (Main.instance != null)
+                        device = Main.instance.GraphicsDevice;
+                    if (device == null && Main.graphics != null)
+                        device = Main.graphics.GraphicsDevice;
+                }
+                catch { /* ignore */ }
+
+                // Previous UI interface layer may still have Begin active.
+                try { sb.End(); }
+                catch (InvalidOperationException) { /* not begun */ }
+                catch { /* ignore */ }
+
+                EnsureScissorRaster();
+                var matrix = GetUiMatrix();
+                var scale = Math.Max(0.01f, _uiScale);
+
+                Rectangle? prevScissor = null;
+                try
+                {
+                    if (device != null)
+                        prevScissor = device.ScissorRectangle;
+                }
+                catch { /* ignore */ }
+
+                // Group consecutive commands that share the same clip rect so we only
+                // re-Begin the batch when the scissor region actually changes.
+                var i = 0;
+                while (i < _cmds.Count)
+                {
+                    var clip = _cmds[i].Clip;
+                    var j = i + 1;
+                    while (j < _cmds.Count && ClipEquals(_cmds[j].Clip, clip))
+                        j++;
+
+                    var useScissor = clip.HasValue && device != null && _scissorRaster != null;
+                    try
                     {
-                        var c = _cmds[i];
-                        if (c.Kind == DrawKind.Rect)
+                        if (useScissor)
                         {
-                            sb.Draw(_pixel, c.Rect, c.Color);
+                            // Clip is stored in UI-logical coords; GPU scissor is physical pixels.
+                            var uiClip = clip.Value;
+                            var phys = new Rectangle(
+                                (int)Math.Floor(uiClip.X * scale),
+                                (int)Math.Floor(uiClip.Y * scale),
+                                Math.Max(1, (int)Math.Ceiling(uiClip.Width * scale)),
+                                Math.Max(1, (int)Math.Ceiling(uiClip.Height * scale)));
+                            // Intersect with the backbuffer so XNA doesn't throw.
+                            var vp = device.Viewport;
+                            var bounds = new Rectangle(vp.X, vp.Y, vp.Width, vp.Height);
+                            phys = Rectangle.Intersect(phys, bounds);
+                            if (phys.Width <= 0 || phys.Height <= 0)
+                            {
+                                i = j;
+                                continue;
+                            }
+
+                            sb.Begin(
+                                SpriteSortMode.Deferred,
+                                BlendState.AlphaBlend,
+                                SamplerState.PointClamp,
+                                DepthStencilState.None,
+                                _scissorRaster,
+                                null,
+                                matrix);
+                            device.ScissorRectangle = phys;
                         }
-                        else if (c.Kind == DrawKind.Text)
+                        else
                         {
-                            DrawText(sb, c.Text, c.Pos, c.Color);
+                            sb.Begin(
+                                SpriteSortMode.Deferred,
+                                BlendState.AlphaBlend,
+                                SamplerState.PointClamp,
+                                DepthStencilState.None,
+                                RasterizerState.CullNone,
+                                null,
+                                matrix);
+                        }
+
+                        for (var k = i; k < j; k++)
+                        {
+                            var c = _cmds[k];
+                            if (c.Kind == DrawKind.Rect)
+                                sb.Draw(_pixel, c.Rect, c.Color);
+                            else if (c.Kind == DrawKind.Text)
+                                DrawText(sb, c.Text, c.Pos, c.Color);
                         }
                     }
-                }
-                finally
-                {
-                    sb.End();
+                    finally
+                    {
+                        try { sb.End(); }
+                        catch { /* ignore */ }
+                    }
+
+                    i = j;
                 }
 
-                // The game draws the mouse cursor as the last step of Main.Draw; our overlay runs
-                // in OnPostDraw (after that), so it would cover the cursor. We produced draw
-                // commands this frame (a window is visible), so re-draw the cursor on top.
-                DrawCursorOnTop();
+                // Restore previous scissor so later game draws aren't clipped.
+                if (device != null && prevScissor.HasValue)
+                {
+                    try { device.ScissorRectangle = prevScissor.Value; }
+                    catch { /* ignore */ }
+                }
             }
             catch (Exception ex)
             {
@@ -173,96 +327,236 @@ namespace TIMF.UI
             }
         }
 
-        /// <summary>
-        /// Re-draw the vanilla mouse cursor above our overlay, mirroring
-        /// Main.DrawInterface_36_Cursor(): its own SpriteBatch with UIScaleMatrix,
-        /// then Main.DrawCursor(Main.DrawThickCursor(false), false).
-        /// All via reflection to stay independent of compile-time ReLogic/XNA identities.
-        /// </summary>
-        private void DrawCursorOnTop()
+        private void EnsureScissorRaster()
         {
+            if (_scissorRaster != null)
+                return;
             try
             {
-                if (Main.gameMenu)
-                    return; // vanilla menu already keeps its cursor on top
-
-                if (!ResolveCursorReflection())
-                    return;
-
-                var sb = Main.spriteBatch;
-                var scaleMatrix = _uiScaleMatrixProp != null
-                    ? (Matrix)_uiScaleMatrixProp.GetValue(null, null)
-                    : Matrix.Identity;
-                var sampler = _cursorSampler ?? SamplerState.PointClamp;
-
-                sb.Begin(
-                    SpriteSortMode.Deferred,
-                    BlendState.AlphaBlend,
-                    sampler,
-                    DepthStencilState.None,
-                    RasterizerState.CullCounterClockwise,
-                    null,
-                    scaleMatrix);
-                try
+                _scissorRaster = new RasterizerState
                 {
-                    var bonus = _drawThickCursor.Invoke(null, new object[] { false });
-                    _drawCursor.Invoke(null, new[] { bonus, (object)false });
-                }
-                finally
-                {
-                    sb.End();
-                }
+                    CullMode = CullMode.None,
+                    ScissorTestEnable = true,
+                };
             }
             catch (Exception ex)
             {
-                if (!_loggedCursorFail)
+                if (!_loggedScissorFail)
                 {
-                    _loggedCursorFail = true;
-                    _log.Error("TIMF.UI cursor redraw failed", ex);
+                    _loggedScissorFail = true;
+                    _log.Error("TIMF.UI scissor RasterizerState create failed", ex);
                 }
+                _scissorRaster = null;
             }
         }
 
-        private bool ResolveCursorReflection()
+        private static bool ClipEquals(Rectangle? a, Rectangle? b)
         {
-            if (_cursorResolved)
-                return _drawCursor != null && _drawThickCursor != null;
+            if (!a.HasValue && !b.HasValue)
+                return true;
+            if (!a.HasValue || !b.HasValue)
+                return false;
+            return a.Value.Equals(b.Value);
+        }
 
-            _cursorResolved = true;
+        private Rectangle? CurrentChildClip()
+        {
+            if (_child == null)
+                return null;
+            // Outer child rect (includes scrollbar gutter) — content must not paint outside it.
+            return new Rectangle(
+                (int)_child.OuterX,
+                (int)_child.OuterY,
+                Math.Max(1, (int)_child.OuterW),
+                Math.Max(1, (int)_child.OuterH));
+        }
+
+        /// <summary>
+        /// Block vanilla click-through for windows that were open last frame.
+        /// Call before the game consumes the click (DrawMenu Prefix / early Update).
+        /// Main-menu items read mouseLeft during DrawMenu — after DrawCursor is too late.
+        /// </summary>
+        public void EarlyBlockGameInput()
+        {
+            if (_blockWindowRects.Count == 0)
+                return;
+
             try
             {
-                var mainType = typeof(Main);
-                _drawThickCursor = mainType.GetMethod(
-                    "DrawThickCursor",
-                    BindingFlags.Public | BindingFlags.Static,
-                    null,
-                    new[] { typeof(bool) },
-                    null);
-                _drawCursor = mainType.GetMethod(
-                    "DrawCursor",
-                    BindingFlags.Public | BindingFlags.Static,
-                    null,
-                    new[] { typeof(Vector2), typeof(bool) },
-                    null);
+                // Same coordinate space as NewFrame widgets (physical mouse / UIScale).
+                var scale = ResolveUiScale();
+                var inv = scale > 0.01f ? 1f / scale : 1f;
+                float mx, my;
+                try
+                {
+                    var m = Mouse.GetState();
+                    mx = m.X * inv;
+                    my = m.Y * inv;
+                }
+                catch
+                {
+                    // Fallback: Main.mouseX/Y are usually already in UI-space after PlayerInput.
+                    mx = Main.mouseX;
+                    my = Main.mouseY;
+                }
 
-                _uiScaleMatrixProp = mainType.GetProperty(
-                    "UIScaleMatrix", BindingFlags.Public | BindingFlags.Static);
+                var over = false;
+                for (var i = 0; i < _blockWindowRects.Count; i++)
+                {
+                    if (_blockWindowRects[i].Contains((int)mx, (int)my))
+                    {
+                        over = true;
+                        break;
+                    }
+                }
 
-                var samplerField = mainType.GetField(
-                    "SamplerStateForCursor", BindingFlags.Public | BindingFlags.Static);
-                if (samplerField != null)
-                    _cursorSampler = samplerField.GetValue(null) as SamplerState;
+                if (!over)
+                    return;
 
-                if (_drawCursor == null || _drawThickCursor == null)
-                    _log.Warn("TIMF.UI: DrawCursor/DrawThickCursor not found; cursor may render under UI");
+                ApplyInputBlock();
+            }
+            catch
+            {
+                // Never break the game loop.
+            }
+        }
 
-                return _drawCursor != null && _drawThickCursor != null;
+        /// <summary>
+        /// Block game click-through while the pointer is over our UI.
+        /// Called from Render when WantCaptureMouse is set, and from EarlyBlockGameInput.
+        /// </summary>
+        private void ApplyInputBlock()
+        {
+            try
+            {
+                if (Main.LocalPlayer != null)
+                    Main.LocalPlayer.mouseInterface = true;
+            }
+            catch
+            {
+                // ignore
+            }
+
+            try
+            {
+                // Main menu (DrawMenu) keys off mouseLeft + mouseLeftRelease, not mouseInterface.
+                // These are re-sampled next frame by PlayerInput — safe to clear for this frame only.
+                Main.mouseLeft = false;
+                Main.mouseLeftRelease = false;
+                Main.mouseRight = false;
+                Main.mouseRightRelease = false;
+            }
+            catch
+            {
+                // ignore
+            }
+
+            try
+            {
+                // Used by some menu widgets (color sliders, inventory bits). Sticky in-world —
+                // we own the set so Finalize/Release can clear it when UI no longer captures.
+                Main.blockMouse = true;
+                _ownedBlockMouse = true;
+            }
+            catch
+            {
+                // ignore
+            }
+        }
+
+        /// <summary>
+        /// Release sticky game input flags we set, and drop text focus when no window is open.
+        /// Without this, closing a window that had a focused InputText leaves Main.blockInput=true
+        /// forever and Player.Update never copies movement/use triggers.
+        /// </summary>
+        private void FinalizeInputOwnership()
+        {
+            if (!_anyWindowOpen)
+            {
+                _focusedInputId = null;
+                _wantCaptureKeyboard = false;
+            }
+
+            // Only keep blockInput while a field re-requested it this frame.
+            if (_ownedBlockInput && !_wantBlockInputThisFrame)
+                TrySetBlockInput(false);
+        }
+
+        private void ReleaseOwnedBlockMouse()
+        {
+            if (!_ownedBlockMouse)
+                return;
+            try
+            {
+                Main.blockMouse = false;
+            }
+            catch
+            {
+                // ignore
+            }
+            _ownedBlockMouse = false;
+        }
+
+        /// <summary>UI-logical screen size (physical / uiScale).</summary>
+        private float ScreenWidthUi => _uiScale > 0.01f ? Main.screenWidth / _uiScale : Main.screenWidth;
+        private float ScreenHeightUi => _uiScale > 0.01f ? Main.screenHeight / _uiScale : Main.screenHeight;
+
+        private Matrix GetUiMatrix()
+        {
+            try
+            {
+                if (_uiMatrixProp == null && !_uiMatrixTried)
+                {
+                    _uiMatrixTried = true;
+                    _uiMatrixProp = typeof(Main).GetProperty(
+                        "UIScaleMatrix", BindingFlags.Public | BindingFlags.Static);
+                }
+
+                if (_uiMatrixProp != null)
+                    return (Matrix)_uiMatrixProp.GetValue(null, null);
             }
             catch (Exception ex)
             {
-                _log.Error("TIMF.UI cursor reflection failed", ex);
-                return false;
+                if (!_loggedMatrixFail)
+                {
+                    _loggedMatrixFail = true;
+                    _log.Error("TIMF.UI UIScaleMatrix read failed; using scale fallback", ex);
+                }
             }
+
+            // Fallback: build from resolved scale.
+            return Matrix.CreateScale(_uiScale, _uiScale, 1f);
+        }
+
+        private float ResolveUiScale()
+        {
+            try
+            {
+                if (!_uiScaleResolved)
+                {
+                    _uiScaleResolved = true;
+                    _uiScaleField = typeof(Main).GetField(
+                        "UIScale", BindingFlags.Public | BindingFlags.Static)
+                        ?? typeof(Main).GetProperty("UIScale", BindingFlags.Public | BindingFlags.Static) as MemberInfo;
+                }
+
+                if (_uiScaleField is FieldInfo fi)
+                {
+                    var v = fi.GetValue(null);
+                    if (v is float f && f > 0.01f) return f;
+                }
+                else if (_uiScaleField is PropertyInfo pi)
+                {
+                    var v = pi.GetValue(null, null);
+                    if (v is float f && f > 0.01f) return f;
+                }
+            }
+            catch
+            {
+                // fall through
+            }
+
+            return 1f;
         }
 
         public bool Begin(string title)
@@ -292,79 +586,110 @@ namespace TIMF.UI
                     Title = title,
                     X = _nextWindowPosX,
                     Y = _nextWindowPosY,
-                    W = 320f,
+                    W = DefaultWindowW,
                     H = 200f,
                     Collapsed = false,
                 };
                 _nextWindowPosX += 28f;
                 _nextWindowPosY += 28f;
-                if (_nextWindowPosX > Main.screenWidth * 0.5f)
+                if (_nextWindowPosX > ScreenWidthUi * 0.5f)
                     _nextWindowPosX = 40f;
-                if (_nextWindowPosY > Main.screenHeight * 0.5f)
+                if (_nextWindowPosY > ScreenHeightUi * 0.5f)
                     _nextWindowPosY = 80f;
                 _windows[title] = st;
             }
 
             _cur = st;
+            _child = null;
             _windowStack++;
             st.Open = true;
+            _anyWindowOpen = true;
 
-            // Title bar drag
+            // Title chrome layout — collapse/close hitboxes match drawn icons.
             var titleRect = new Rectangle((int)st.X, (int)st.Y, (int)st.W, (int)TitleH);
-            var idTitle = title + "##title";
-            if (Hit(titleRect))
+            var collapseSize = (int)CollapseBtnSize;
+            var closeSize = (int)CloseBtnSize;
+            var collapseRect = new Rectangle(
+                (int)st.X + 6,
+                (int)(st.Y + (TitleH - collapseSize) * 0.5f),
+                collapseSize,
+                collapseSize);
+            var closeRect = new Rectangle(
+                (int)(st.X + st.W - closeSize - 4),
+                (int)(st.Y + (TitleH - closeSize) * 0.5f),
+                closeSize,
+                closeSize);
+
+            var hitCollapse = Hit(collapseRect);
+            var hitClose = Hit(closeRect);
+
+            // Collapse / close first so they don't start a title drag on the same click.
+            if (hitCollapse)
             {
-                _hotId = idTitle;
+                _hotId = title + "##collapse";
                 _wantCapture = true;
                 if (_lmbClick)
-                    _activeId = idTitle;
+                {
+                    st.Collapsed = !st.Collapsed;
+                    _activeId = null;
+                }
             }
-
-            if (_activeId == idTitle && _lmbDown)
+            else if (hitClose)
             {
-                st.X += _mouse.X - _prevMouse.X;
-                st.Y += _mouse.Y - _prevMouse.Y;
-                st.X = MathHelper.Clamp(st.X, 0, Math.Max(0, Main.screenWidth - 40));
-                st.Y = MathHelper.Clamp(st.Y, 0, Math.Max(0, Main.screenHeight - 20));
+                _hotId = title + "##close";
                 _wantCapture = true;
+                if (_lmbClick)
+                {
+                    open = false;
+                    st.Open = false;
+                    _activeId = null;
+                    _cur = null;
+                    return false;
+                }
             }
-
-            // Collapse toggle on title double-area click edge
-            var collapseRect = new Rectangle((int)st.X + 4, (int)st.Y + 4, 18, 18);
-            if (Hit(collapseRect) && _lmbClick)
+            else
             {
-                st.Collapsed = !st.Collapsed;
-                _wantCapture = true;
-            }
+                // Title bar drag (exclude collapse / close hitboxes).
+                var idTitle = title + "##title";
+                if (Hit(titleRect))
+                {
+                    _hotId = idTitle;
+                    _wantCapture = true;
+                    if (_lmbClick)
+                        _activeId = idTitle;
+                }
 
-            // Close button
-            var closeRect = new Rectangle((int)(st.X + st.W - 22), (int)st.Y + 4, 18, 18);
-            if (Hit(closeRect) && _lmbClick)
-            {
-                open = false;
-                st.Open = false;
-                _wantCapture = true;
-                _cur = null;
-                return false;
+                if (_activeId == idTitle && _lmbDown)
+                {
+                    st.X += _mouseUi.X - _prevMouseUi.X;
+                    st.Y += _mouseUi.Y - _prevMouseUi.Y;
+                    st.X = MathHelper.Clamp(st.X, 0, Math.Max(0, ScreenWidthUi - 40));
+                    st.Y = MathHelper.Clamp(st.Y, 0, Math.Max(0, ScreenHeightUi - 20));
+                    _wantCapture = true;
+
+                    // Drag moves the window — recompute chrome rects for this frame's draw.
+                    titleRect = new Rectangle((int)st.X, (int)st.Y, (int)st.W, (int)TitleH);
+                    collapseRect = new Rectangle(
+                        (int)st.X + 6,
+                        (int)(st.Y + (TitleH - collapseSize) * 0.5f),
+                        collapseSize,
+                        collapseSize);
+                    closeRect = new Rectangle(
+                        (int)(st.X + st.W - closeSize - 4),
+                        (int)(st.Y + (TitleH - closeSize) * 0.5f),
+                        closeSize,
+                        closeSize);
+                }
             }
 
             // Background body
             var bodyH = st.Collapsed ? TitleH : Math.Max(TitleH + Pad, st.H);
             var winRect = new Rectangle((int)st.X, (int)st.Y, (int)st.W, (int)bodyH);
+            _frameWindowRects.Add(winRect);
             if (Hit(winRect))
                 _wantCapture = true;
 
-            PushRect(winRect, ColWinBg);
-            PushRect(titleRect, ColTitle);
-            // border
-            PushRect(new Rectangle(winRect.X, winRect.Y, winRect.Width, 1), ColBorder);
-            PushRect(new Rectangle(winRect.X, winRect.Bottom - 1, winRect.Width, 1), ColBorder);
-            PushRect(new Rectangle(winRect.X, winRect.Y, 1, winRect.Height), ColBorder);
-            PushRect(new Rectangle(winRect.Right - 1, winRect.Y, 1, winRect.Height), ColBorder);
-
-            PushText((st.Collapsed ? "► " : "▼ ") + title,
-                new Vector2(st.X + 26, st.Y + 5), ColText);
-            PushText("×", new Vector2(st.X + st.W - 18, st.Y + 4), ColText);
+            DrawWindowChrome(st, title, titleRect, collapseRect, closeRect);
 
             if (st.Collapsed)
             {
@@ -378,6 +703,7 @@ namespace TIMF.UI
             _lineHeight = RowH;
             _contentMaxX = st.X + Pad;
             _sameLine = false;
+            _hasLastItem = false;
             return true;
         }
 
@@ -385,6 +711,10 @@ namespace TIMF.UI
         {
             if (_windowStack > 0)
                 _windowStack--;
+
+            // Auto-close unmatched child (defensive).
+            if (_child != null)
+                EndChild();
 
             if (_cur != null)
             {
@@ -398,7 +728,151 @@ namespace TIMF.UI
             }
 
             _cur = null;
+            _child = null;
             _sameLine = false;
+        }
+
+        public bool BeginChild(string id, float height, float width = 0f)
+        {
+            if (_cur == null)
+                return false;
+            if (_child != null)
+            {
+                // Nested children not supported; keep balance by stacking one level only.
+                EndChild();
+            }
+
+            if (string.IsNullOrEmpty(id))
+                id = "child";
+
+            AdvanceLine();
+
+            var availW = Math.Max(40f, (_cur.X + _cur.W - Pad) - _cursorX);
+            var childW = width > 1f ? Math.Min(width, availW) : availW;
+            var childH = Math.Max(24f, height);
+            var childX = _cursorX;
+            var childY = _cursorY;
+
+            var viewW = Math.Max(20f, childW - ScrollbarW - 2f);
+            var viewRect = new Rectangle((int)childX, (int)childY, (int)childW, (int)childH);
+            var contentView = new Rectangle((int)childX, (int)childY, (int)viewW, (int)childH);
+
+            float scroll;
+            if (!_cur.ChildScroll.TryGetValue(id, out scroll))
+                scroll = 0f;
+
+            var hovering = HitRaw(viewRect);
+            if (hovering)
+            {
+                _wantCapture = true;
+                var wheelDelta = _mouse.ScrollWheelValue - _prevMouse.ScrollWheelValue;
+                if (wheelDelta != 0)
+                {
+                    // 120 units per notch typically.
+                    scroll -= (wheelDelta / 120f) * 28f;
+                }
+            }
+
+            // Child chrome (always drawn; not subject to self-clip).
+            PushRectRaw(viewRect, ColChildBg);
+            PushRectRaw(new Rectangle(viewRect.X, viewRect.Y, viewRect.Width, 1), ColBorder * 0.7f);
+            PushRectRaw(new Rectangle(viewRect.X, viewRect.Bottom - 1, viewRect.Width, 1), ColBorder * 0.7f);
+            PushRectRaw(new Rectangle(viewRect.X, viewRect.Y, 1, viewRect.Height), ColBorder * 0.7f);
+            PushRectRaw(new Rectangle(viewRect.Right - 1, viewRect.Y, 1, viewRect.Height), ColBorder * 0.7f);
+
+            // Save parent layout.
+            _savedCursorX = _cursorX;
+            _savedCursorY = _cursorY;
+            _savedLineStartX = _lineStartX;
+            _savedLineHeight = _lineHeight;
+            _savedContentMaxX = _contentMaxX;
+            _savedSameLine = _sameLine;
+            _savedSameLineSpacing = _sameLineSpacing;
+
+            _child = new ChildState
+            {
+                Id = id,
+                ViewX = contentView.X,
+                ViewY = contentView.Y,
+                ViewW = contentView.Width,
+                ViewH = contentView.Height,
+                OuterX = childX,
+                OuterY = childY,
+                OuterW = childW,
+                OuterH = childH,
+                ScrollY = scroll,
+                ContentStartY = childY + ChildPad - scroll,
+            };
+
+            _cursorX = childX + ChildPad;
+            _cursorY = _child.ContentStartY;
+            _lineStartX = _cursorX;
+            _lineHeight = RowH;
+            _contentMaxX = _cursorX;
+            _sameLine = false;
+            return true;
+        }
+
+        public void EndChild()
+        {
+            if (_child == null || _cur == null)
+            {
+                _child = null;
+                return;
+            }
+
+            var ch = _child;
+            // Content height measured from the scrolled content start (pre-scroll top + pad).
+            var contentBottom = _cursorY + (_sameLine ? 0 : 0);
+            var unscrolledTop = ch.OuterY + ChildPad;
+            var contentH = Math.Max(0f, (contentBottom - ch.ContentStartY));
+            // Also account for padding at bottom of content.
+            contentH += ChildPad;
+
+            var maxScroll = Math.Max(0f, contentH - ch.ViewH);
+            var scroll = MathHelper.Clamp(ch.ScrollY, 0f, maxScroll);
+            _cur.ChildScroll[ch.Id] = scroll;
+
+            // Scrollbar track on the right of the outer child.
+            var trackX = (int)(ch.OuterX + ch.OuterW - ScrollbarW - 1);
+            var trackY = (int)ch.OuterY + 2;
+            var trackH = Math.Max(4, (int)ch.OuterH - 4);
+            PushRectRaw(new Rectangle(trackX, trackY, (int)ScrollbarW, trackH), ColScrollBg);
+
+            if (maxScroll > 0.5f)
+            {
+                var thumbH = Math.Max(16f, trackH * (ch.ViewH / Math.Max(ch.ViewH, contentH)));
+                var t = maxScroll > 0.001f ? (scroll / maxScroll) : 0f;
+                var thumbY = trackY + (trackH - thumbH) * t;
+                PushRectRaw(new Rectangle(trackX + 1, (int)thumbY, (int)ScrollbarW - 2, (int)thumbH), ColScrollThumb);
+
+                // Drag scrollbar thumb.
+                var thumbRect = new Rectangle(trackX, trackY, (int)ScrollbarW, trackH);
+                var sid = _cur.Title + "##scroll##" + ch.Id;
+                if (HitRaw(thumbRect))
+                {
+                    _hotId = sid;
+                    _wantCapture = true;
+                    if (_lmbClick)
+                        _activeId = sid;
+                }
+                if (_activeId == sid && _lmbDown)
+                {
+                    var rel = MathHelper.Clamp((_mouseUi.Y - trackY) / Math.Max(1f, trackH), 0f, 1f);
+                    scroll = rel * maxScroll;
+                    _cur.ChildScroll[ch.Id] = scroll;
+                    _wantCapture = true;
+                }
+            }
+
+            // Restore parent layout below the child region.
+            _contentMaxX = Math.Max(_savedContentMaxX, ch.OuterX + ch.OuterW);
+            _cursorX = _savedLineStartX;
+            _cursorY = ch.OuterY + ch.OuterH + 4f;
+            _lineStartX = _savedLineStartX;
+            _lineHeight = RowH;
+            _sameLine = false;
+            _child = null;
         }
 
         public void Text(string text)
@@ -411,14 +885,21 @@ namespace TIMF.UI
             if (_cur == null || text == null)
                 return;
             AdvanceLine();
+            var startX = _cursorX;
+            var startY = _cursorY;
             PushText(text, new Vector2(_cursorX, _cursorY), color);
             var sz = Measure(text);
-            _contentMaxX = Math.Max(_contentMaxX, _cursorX + sz.X);
-            _lineHeight = Math.Max(_lineHeight, Math.Max(RowH, sz.Y + 4));
-            _cursorY += _lineHeight;
-            _cursorX = _lineStartX;
+            var h = Math.Max(RowH, sz.Y + 4);
+            _lineHeight = Math.Max(_lineHeight, h);
+            MarkLastItem(startX, startY, sz.X, h);
+            _cursorX = startX + sz.X;
+            if (!_sameLine)
+            {
+                _cursorY += _lineHeight;
+                _cursorX = _lineStartX;
+                _lineHeight = RowH;
+            }
             _sameLine = false;
-            _lineHeight = RowH;
         }
 
         public void Separator()
@@ -427,7 +908,9 @@ namespace TIMF.UI
                 return;
             AdvanceLine();
             var y = (int)_cursorY + 4;
-            PushRect(new Rectangle((int)_cur.X + 6, y, (int)_cur.W - 12, 1), ColBorder * 0.7f);
+            var left = _child != null ? (int)_child.ViewX + 2 : (int)_cur.X + 6;
+            var width = _child != null ? (int)_child.ViewW - 4 : (int)_cur.W - 12;
+            PushRect(new Rectangle(left, y, width, 1), ColBorder * 0.7f);
             _cursorY += 12;
             _cursorX = _lineStartX;
             _sameLine = false;
@@ -444,8 +927,28 @@ namespace TIMF.UI
 
         public void SameLine(float spacing = 8f)
         {
+            if (!_hasLastItem || _cur == null)
+            {
+                _sameLine = true;
+                _sameLineSpacing = spacing;
+                return;
+            }
+
+            // Stay on the previous item's row: restore its Y and place after its right edge.
+            _cursorY = _lastItemY;
+            _cursorX = _lastItemMaxX + spacing;
+            _lineHeight = Math.Max(_lineHeight, _lastItemH);
             _sameLine = true;
-            _sameLineSpacing = spacing;
+            _sameLineSpacing = 0f; // already applied
+        }
+
+        private void MarkLastItem(float x, float y, float w, float h)
+        {
+            _lastItemMaxX = x + w;
+            _lastItemY = y;
+            _lastItemH = h;
+            _hasLastItem = true;
+            _contentMaxX = Math.Max(_contentMaxX, _lastItemMaxX);
         }
 
         public bool Button(string label)
@@ -458,7 +961,7 @@ namespace TIMF.UI
             var w = Math.Max(80f, sz.X + 20f);
             var h = Math.Max(RowH, sz.Y + 8f);
             var rect = new Rectangle((int)_cursorX, (int)_cursorY, (int)w, (int)h);
-            var id = _cur.Title + "##btn##" + label;
+            var id = _cur.Title + "##btn##" + label + ChildIdSuffix();
 
             var hot = Hit(rect);
             if (hot)
@@ -477,14 +980,17 @@ namespace TIMF.UI
             PushText(text, new Vector2(rect.X + (w - sz.X) * 0.5f, rect.Y + (h - sz.Y) * 0.5f), ColText);
 
             var clicked = hot && _lmbReleased && (_activeId == id || _hotId == id);
-            _contentMaxX = Math.Max(_contentMaxX, _cursorX + w);
             _lineHeight = Math.Max(_lineHeight, h + 2);
-            _cursorX += w;
+            MarkLastItem(_cursorX, _cursorY, w, h + 2);
             if (!_sameLine)
             {
                 _cursorY += _lineHeight;
                 _cursorX = _lineStartX;
                 _lineHeight = RowH;
+            }
+            else
+            {
+                _cursorX += w;
             }
 
             _sameLine = false;
@@ -499,10 +1005,15 @@ namespace TIMF.UI
             var text = label ?? "";
             var sz = Measure(text);
             var h = Math.Max(RowH, sz.Y + 6f);
-            // Full available width inside the window content area.
-            var w = Math.Max(60f, (_cur.X + _cur.W - Pad) - _cursorX);
+            // Full available width inside the window / child content area.
+            float right;
+            if (_child != null)
+                right = _child.ViewX + _child.ViewW - ChildPad;
+            else
+                right = _cur.X + _cur.W - Pad;
+            var w = Math.Max(60f, right - _cursorX);
             var rect = new Rectangle((int)_cursorX, (int)_cursorY, (int)w, (int)h);
-            var id = _cur.Title + "##sel##" + label;
+            var id = _cur.Title + "##sel##" + label + ChildIdSuffix();
 
             var hot = Hit(rect);
             if (hot)
@@ -540,7 +1051,7 @@ namespace TIMF.UI
             var totalW = box + 8 + sz.X;
             var rect = new Rectangle((int)_cursorX, (int)_cursorY + 2, box, box);
             var hit = new Rectangle((int)_cursorX, (int)_cursorY, (int)totalW + 4, (int)Math.Max(RowH, sz.Y + 4));
-            var id = _cur.Title + "##chk##" + label;
+            var id = _cur.Title + "##chk##" + label + ChildIdSuffix();
 
             var hot = Hit(hit);
             if (hot)
@@ -595,7 +1106,7 @@ namespace TIMF.UI
             _cursorY += Math.Max(RowH - 4, tsz.Y + 2);
 
             var track = new Rectangle((int)_cursorX, (int)_cursorY + 4, (int)WidgetW, 10);
-            var id = _cur.Title + "##sld##" + label;
+            var id = _cur.Title + "##sld##" + label + ChildIdSuffix();
             var hot = Hit(new Rectangle(track.X - 2, track.Y - 4, track.Width + 4, track.Height + 8));
             if (hot)
             {
@@ -608,7 +1119,7 @@ namespace TIMF.UI
             var changed = false;
             if (_activeId == id && _lmbDown)
             {
-                var u = MathHelper.Clamp((_mouse.X - track.X) / (float)Math.Max(1, track.Width), 0f, 1f);
+                var u = MathHelper.Clamp((_mouseUi.X - track.X) / (float)Math.Max(1, track.Width), 0f, 1f);
                 var nv = min + u * (max - min);
                 if (Math.Abs(nv - value) > 1e-6f)
                 {
@@ -653,7 +1164,7 @@ namespace TIMF.UI
             var plus = new Rectangle((int)_cursorX + 28 + 70, (int)_cursorY, 24, (int)RowH);
             var valRect = new Rectangle((int)_cursorX + 28, (int)_cursorY, 66, (int)RowH);
 
-            if (MiniButton(minus, "-", _cur.Title + "##if-##" + label))
+            if (MiniButton(minus, "-", _cur.Title + "##if-##" + label + ChildIdSuffix()))
             {
                 value -= step;
                 changed = true;
@@ -664,7 +1175,7 @@ namespace TIMF.UI
             var vsz = Measure(vs);
             PushText(vs, new Vector2(valRect.X + (valRect.Width - vsz.X) * 0.5f, valRect.Y + 3), ColText);
 
-            if (MiniButton(plus, "+", _cur.Title + "##if+##" + label))
+            if (MiniButton(plus, "+", _cur.Title + "##if+##" + label + ChildIdSuffix()))
             {
                 value += step;
                 changed = true;
@@ -675,6 +1186,298 @@ namespace TIMF.UI
             _cursorY = oldY + RowH + 4;
             _sameLine = false;
             return changed;
+        }
+
+        public bool InputText(string label, ref string value, int maxLength = 64)
+        {
+            if (_cur == null)
+                return false;
+            AdvanceLine();
+
+            value = value ?? "";
+            var id = _cur.Title + "##txt##" + label + ChildIdSuffix();
+
+            var lbl = (label ?? "").Trim();
+            var hasLabel = lbl.Length > 0 && !lbl.StartsWith("##");
+            if (hasLabel)
+            {
+                PushText(lbl, new Vector2(_cursorX, _cursorY + 3), ColText);
+                var lsz = Measure(lbl);
+                _cursorY += Math.Max(RowH - 6, lsz.Y + 2);
+            }
+
+            float right;
+            if (_child != null)
+                right = _child.ViewX + _child.ViewW - ChildPad;
+            else
+                right = _cur.X + _cur.W - Pad;
+            var boxW = Math.Max(120f, right - _cursorX);
+            var boxH = RowH + 2;
+            var rect = new Rectangle((int)_cursorX, (int)_cursorY, (int)boxW, (int)boxH);
+
+            var hot = Hit(rect);
+            if (hot)
+                _wantCapture = true;
+
+            // Click to focus / click-away to blur.
+            if (_lmbClick)
+            {
+                if (hot)
+                    _focusedInputId = id;
+                else if (_focusedInputId == id)
+                    _focusedInputId = null;
+            }
+
+            var focused = _focusedInputId == id;
+            var changed = false;
+            if (focused)
+            {
+                _wantCaptureKeyboard = true;
+                TrySetBlockInput(true);
+                changed = ProcessTextInput(ref value, maxLength);
+            }
+
+            // Box background + border (highlight when focused).
+            PushRect(rect, ColSliderBg);
+            var border = focused ? ColSliderFill : ColBorder;
+            PushRect(new Rectangle(rect.X, rect.Y, rect.Width, 1), border);
+            PushRect(new Rectangle(rect.X, rect.Bottom - 1, rect.Width, 1), border);
+            PushRect(new Rectangle(rect.X, rect.Y, 1, rect.Height), border);
+            PushRect(new Rectangle(rect.Right - 1, rect.Y, 1, rect.Height), border);
+
+            // Text (with blinking caret when focused). Empty → nothing.
+            var shown = value;
+            if (focused && ((int)(_caretBlink * 2) % 2 == 0))
+                shown += "|";
+            if (!string.IsNullOrEmpty(shown))
+                PushText(shown, new Vector2(rect.X + 6, rect.Y + 4), ColText);
+
+            _contentMaxX = Math.Max(_contentMaxX, _cursorX + boxW);
+            _cursorY += boxH + 4;
+            _cursorX = _lineStartX;
+            _lineHeight = RowH;
+            _sameLine = false;
+            return changed;
+        }
+
+        private void TrySetBlockInput(bool value)
+        {
+            try
+            {
+                if (value)
+                {
+                    Main.blockInput = true;
+                    _ownedBlockInput = true;
+                    _wantBlockInputThisFrame = true;
+                }
+                else if (_ownedBlockInput)
+                {
+                    // Only clear if we were the ones who set it (don't clobber chat/sign/chest).
+                    Main.blockInput = false;
+                    _ownedBlockInput = false;
+                    _wantBlockInputThisFrame = false;
+                }
+            }
+            catch
+            {
+                // Field may not exist on some builds.
+            }
+        }
+
+        /// <summary>
+        /// Apply typed keys to the focused field. Prefers Main.GetInputText for IME;
+        /// falls back to key scanning for backspace / printable when needed.
+        /// </summary>
+        private bool ProcessTextInput(ref string value, int maxLength)
+        {
+            _caretBlink += _frameSeconds;
+            if (maxLength < 1)
+                maxLength = 1;
+
+            var changed = false;
+            var usedGetInputText = false;
+            var before = value ?? "";
+
+            // Prefer vanilla input path so Chinese IME composition works.
+            try
+            {
+                var next = Main.GetInputText(before, false);
+                if (next == null)
+                    next = "";
+                if (next.Length > maxLength)
+                    next = next.Substring(0, maxLength);
+                if (!string.Equals(next, before, StringComparison.Ordinal))
+                {
+                    value = next;
+                    changed = true;
+                }
+                else
+                {
+                    value = next;
+                }
+                usedGetInputText = true;
+            }
+            catch
+            {
+                usedGetInputText = false;
+            }
+
+            // Ctrl+V via OS clipboard (also covers cases where GetInputText paste path fails).
+            // Only run when GetInputText did not already change the text this frame, to avoid double paste.
+            var ctrl = _keyboard.IsKeyDown(Keys.LeftControl) || _keyboard.IsKeyDown(Keys.RightControl);
+            var vDown = _keyboard.IsKeyDown(Keys.V);
+            var vFresh = vDown && _prevKeyboard.IsKeyUp(Keys.V);
+            if (ctrl && vFresh && !changed)
+            {
+                var clip = UiNative.GetClipboardText();
+                if (!string.IsNullOrEmpty(clip))
+                {
+                    // Single-line field: strip newlines.
+                    clip = clip.Replace("\r", "").Replace("\n", " ");
+                    var merged = (value ?? "") + clip;
+                    if (merged.Length > maxLength)
+                        merged = merged.Substring(0, maxLength);
+                    if (!string.Equals(merged, value, StringComparison.Ordinal))
+                    {
+                        value = merged;
+                        changed = true;
+                    }
+                }
+            }
+
+            // Escape blurs regardless of input path.
+            if (_keyboard.IsKeyDown(Keys.Escape) && _prevKeyboard.IsKeyUp(Keys.Escape))
+            {
+                _focusedInputId = null;
+                TrySetBlockInput(false);
+            }
+
+            // If GetInputText handled the frame, do not also scan printable keys (would double-insert ASCII).
+            // Still offer a backspace fallback only when GetInputText was unavailable.
+            if (!usedGetInputText)
+            {
+                if (ProcessKeyFallback(ref value, maxLength))
+                    changed = true;
+            }
+            else
+            {
+                // Light backspace assist only if GetInputText left the string unchanged while Back is held
+                // and IME is unlikely to be active — skip to avoid fighting GetInputText's own backspace.
+            }
+
+            return changed;
+        }
+
+        /// <summary>Fallback key path when GetInputText is unavailable. Handles backspace + printable ASCII.</summary>
+        private bool ProcessKeyFallback(ref string value, int maxLength)
+        {
+            var changed = false;
+            var keys = _keyboard.GetPressedKeys();
+            var shift = _keyboard.IsKeyDown(Keys.LeftShift) || _keyboard.IsKeyDown(Keys.RightShift);
+            var ctrl = _keyboard.IsKeyDown(Keys.LeftControl) || _keyboard.IsKeyDown(Keys.RightControl);
+
+            foreach (var k in keys)
+            {
+                // Edge or repeat gating.
+                var freshPress = _prevKeyboard.IsKeyUp(k);
+                var isRepeat = false;
+                if (!freshPress)
+                {
+                    if (k == _lastRepeatKey)
+                    {
+                        _keyRepeatTimer -= _frameSeconds;
+                        if (_keyRepeatTimer <= 0)
+                        {
+                            isRepeat = true;
+                            _keyRepeatTimer = 0.04; // fast repeat once held
+                        }
+                    }
+                    if (!isRepeat)
+                        continue;
+                }
+                else
+                {
+                    _lastRepeatKey = k;
+                    _keyRepeatTimer = 0.4; // initial delay before repeat
+                }
+
+                if (k == Keys.Back)
+                {
+                    if (value.Length > 0)
+                    {
+                        value = value.Substring(0, value.Length - 1);
+                        changed = true;
+                    }
+                    continue;
+                }
+
+                if (k == Keys.Escape || k == Keys.Enter || k == Keys.Tab)
+                    continue;
+
+                // Skip Ctrl combos (paste handled separately).
+                if (ctrl)
+                    continue;
+
+                var ch = KeyToChar(k, shift);
+                if (ch != '\0' && value.Length < maxLength)
+                {
+                    value += ch;
+                    changed = true;
+                }
+            }
+
+            // Reset repeat when the tracked key is released.
+            if (_lastRepeatKey != Keys.None && _keyboard.IsKeyUp(_lastRepeatKey))
+                _lastRepeatKey = Keys.None;
+
+            return changed;
+        }
+
+        private static char KeyToChar(Keys k, bool shift)
+        {
+            // Letters
+            if (k >= Keys.A && k <= Keys.Z)
+            {
+                var c = (char)('a' + (k - Keys.A));
+                return shift ? char.ToUpperInvariant(c) : c;
+            }
+
+            // Top-row digits
+            if (k >= Keys.D0 && k <= Keys.D9)
+            {
+                if (!shift)
+                    return (char)('0' + (k - Keys.D0));
+                switch (k)
+                {
+                    case Keys.D1: return '!';
+                    case Keys.D2: return '@';
+                    case Keys.D3: return '#';
+                    case Keys.D4: return '$';
+                    case Keys.D5: return '%';
+                    case Keys.D6: return '^';
+                    case Keys.D7: return '&';
+                    case Keys.D8: return '*';
+                    case Keys.D9: return '(';
+                    case Keys.D0: return ')';
+                }
+            }
+
+            // Numpad digits
+            if (k >= Keys.NumPad0 && k <= Keys.NumPad9)
+                return (char)('0' + (k - Keys.NumPad0));
+
+            switch (k)
+            {
+                case Keys.Space: return ' ';
+                case Keys.OemMinus: return shift ? '_' : '-';
+                case Keys.OemPlus: return shift ? '+' : '=';
+                case Keys.OemPeriod: return shift ? '>' : '.';
+                case Keys.OemComma: return shift ? '<' : ',';
+                case Keys.OemQuestion: return shift ? '?' : '/';
+                case Keys.OemSemicolon: return shift ? ':' : ';';
+                case Keys.OemQuotes: return shift ? '"' : '\'';
+                default: return '\0';
+            }
         }
 
         private bool MiniButton(Rectangle rect, string text, string id)
@@ -700,26 +1503,140 @@ namespace TIMF.UI
         {
             if (!_sameLine)
                 return;
-            // SameLine: keep Y, advance X from previous widget end — approximate with spacing
-            _cursorX += _sameLineSpacing;
+            // SameLine() already restored Y and advanced X; clear the flag only.
+            // If SameLine was called without a prior item, apply spacing fallback.
+            if (_sameLineSpacing > 0f)
+                _cursorX += _sameLineSpacing;
             _sameLine = false;
+            _sameLineSpacing = 0f;
         }
 
+        private string ChildIdSuffix()
+        {
+            return _child != null ? "##c##" + _child.Id : "";
+        }
+
+        /// <summary>Hit test that respects active child viewport (Y clip + mouse must be over child).</summary>
         private bool Hit(Rectangle r)
         {
-            return r.Contains(_mouse.X, _mouse.Y);
+            if (_child != null)
+            {
+                var view = new Rectangle((int)_child.ViewX, (int)_child.ViewY, (int)_child.ViewW, (int)_child.ViewH);
+                if (!view.Contains((int)_mouseUi.X, (int)_mouseUi.Y))
+                    return false;
+                // Widget must intersect the viewport in Y.
+                if (r.Bottom < view.Y || r.Y > view.Bottom)
+                    return false;
+            }
+            return r.Contains((int)_mouseUi.X, (int)_mouseUi.Y);
+        }
+
+        /// <summary>Raw hit test without child clipping (chrome, scrollbar, window frame).</summary>
+        private bool HitRaw(Rectangle r)
+        {
+            return r.Contains((int)_mouseUi.X, (int)_mouseUi.Y);
+        }
+
+        private void DrawWindowChrome(
+            WindowState st,
+            string title,
+            Rectangle titleRect,
+            Rectangle collapseRect,
+            Rectangle closeRect)
+        {
+            var bodyH = st.Collapsed ? TitleH : Math.Max(TitleH + Pad, st.H);
+            var winRect = new Rectangle((int)st.X, (int)st.Y, (int)st.W, (int)bodyH);
+
+            PushRectRaw(winRect, ColWinBg);
+            PushRectRaw(titleRect, ColTitle);
+            // border
+            PushRectRaw(new Rectangle(winRect.X, winRect.Y, winRect.Width, 1), ColBorder);
+            PushRectRaw(new Rectangle(winRect.X, winRect.Bottom - 1, winRect.Width, 1), ColBorder);
+            PushRectRaw(new Rectangle(winRect.X, winRect.Y, 1, winRect.Height), ColBorder);
+            PushRectRaw(new Rectangle(winRect.Right - 1, winRect.Y, 1, winRect.Height), ColBorder);
+
+            // Collapse chevron (pixel triangle) — hitbox == collapseRect.
+            var triColor = Hit(collapseRect) ? ColBtnHot : ColText;
+            DrawCollapseChevron(collapseRect, st.Collapsed, triColor);
+
+            // Title text starts after the collapse button so it never overlaps the icon.
+            var titleX = collapseRect.Right + 6;
+            PushText(title, new Vector2(titleX, st.Y + 5), ColText);
+
+            // Close "×" centered in closeRect so hitbox matches glyph.
+            var closeSz = Measure("×");
+            var closePos = new Vector2(
+                closeRect.X + (closeRect.Width - closeSz.X) * 0.5f,
+                closeRect.Y + (closeRect.Height - closeSz.Y) * 0.5f);
+            var closeColor = Hit(closeRect) ? new Color(255, 120, 120, 255) : ColText;
+            PushText("×", closePos, closeColor);
+        }
+
+        /// <summary>
+        /// Pixel-art chevron centered in <paramref name="btn"/>.
+        /// Collapsed → ► (point right); expanded → ▼ (point down). Same 7×7 bounds either way
+        /// so the icon never "jumps" relative to the hitbox.
+        /// </summary>
+        private void DrawCollapseChevron(Rectangle btn, bool collapsed, Color color)
+        {
+            const int s = 7;
+            var ox = btn.X + (btn.Width - s) / 2;
+            var oy = btn.Y + (btn.Height - s) / 2;
+
+            if (collapsed)
+            {
+                // ► right-pointing filled triangle (widths 1,2,3,4,3,2,1)
+                for (var row = 0; row < s; row++)
+                {
+                    var w = row <= 3 ? row + 1 : (s - row);
+                    PushRectRaw(new Rectangle(ox + 1, oy + row, w, 1), color);
+                }
+            }
+            else
+            {
+                // ▼ down-pointing filled triangle
+                for (var row = 0; row < 4; row++)
+                {
+                    var w = s - row * 2;
+                    if (w <= 0)
+                        break;
+                    PushRectRaw(new Rectangle(ox + row, oy + 1 + row, w, 1), color);
+                }
+            }
         }
 
         private void PushRect(Rectangle r, Color c)
         {
-            _cmds.Add(new DrawCmd { Kind = DrawKind.Rect, Rect = r, Color = c });
+            if (_child != null)
+            {
+                // Coarse reject fully-outside rows; partial overflow is handled by GPU scissor.
+                var top = _child.ViewY;
+                var bottom = _child.ViewY + _child.ViewH;
+                if (r.Bottom < top || r.Y > bottom)
+                    return;
+            }
+            _cmds.Add(new DrawCmd { Kind = DrawKind.Rect, Rect = r, Color = c, Clip = CurrentChildClip() });
+        }
+
+        private void PushRectRaw(Rectangle r, Color c)
+        {
+            // Chrome (child border/bg/scrollbar) is never scissored by the child itself.
+            _cmds.Add(new DrawCmd { Kind = DrawKind.Rect, Rect = r, Color = c, Clip = null });
         }
 
         private void PushText(string text, Vector2 pos, Color c)
         {
             if (string.IsNullOrEmpty(text))
                 return;
-            _cmds.Add(new DrawCmd { Kind = DrawKind.Text, Text = text, Pos = pos, Color = c });
+            if (_child != null)
+            {
+                var top = _child.ViewY;
+                var bottom = _child.ViewY + _child.ViewH;
+                // Coarse reject; GPU scissor trims partial overflow at top/bottom edges.
+                if (pos.Y + RowH < top || pos.Y > bottom)
+                    return;
+            }
+            _cmds.Add(new DrawCmd { Kind = DrawKind.Text, Text = text, Pos = pos, Color = c, Clip = CurrentChildClip() });
         }
 
         private Vector2 Measure(string text)
@@ -897,6 +1814,8 @@ namespace TIMF.UI
             public Vector2 Pos;
             public Color Color;
             public string Text;
+            /// <summary>UI-logical scissor rect; null = no clip for this command.</summary>
+            public Rectangle? Clip;
         }
 
         private sealed class WindowState
@@ -905,6 +1824,16 @@ namespace TIMF.UI
             public float X, Y, W, H;
             public bool Collapsed;
             public bool Open = true;
+            public readonly Dictionary<string, float> ChildScroll = new Dictionary<string, float>();
+        }
+
+        private sealed class ChildState
+        {
+            public string Id;
+            public float ViewX, ViewY, ViewW, ViewH;
+            public float OuterX, OuterY, OuterW, OuterH;
+            public float ScrollY;
+            public float ContentStartY;
         }
     }
 }

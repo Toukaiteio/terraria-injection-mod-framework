@@ -1,0 +1,20 @@
+{
+  "Settings.Title": "物品浏览器：搜索并给予。",
+  "Settings.Toggle": "快捷键：{0}",
+  "Settings.Unbound": "（未绑定）",
+  "Settings.Indexed": "已索引 {0} 种物品",
+  "UI.DbNotReady": "物品数据库未就绪（请先进入世界）。",
+  "UI.Matches": "{0} 个匹配",
+  "UI.Coins": "钱币（堆叠 9999）：",
+  "UI.NoMatch": "没有匹配的物品。",
+  "UI.Selected": "已选：#{0}  {1}",
+  "UI.SelectHint": "请从上方列表选择物品。",
+  "Chat.GaveCoins": "已给予 9999× {0}",
+  "Chat.FailedCoins": "给予 {0} 失败",
+  "Chat.Gave": "已给予 {0}× {1}",
+  "Chat.Failed": "给予 {0} 失败（见日志）",
+  "Chat.Open": "创造模式：打开（{0}）",
+  "Chat.Closed": "创造模式：关闭（{0}）",
+  "Chat.Ready": "创造模式已就绪 — 按 {0} 打开物品浏览器",
+  "Keybind.Toggle": "创造模式 开关"
+}

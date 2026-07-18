@@ -1,0 +1,14 @@
+{
+  "Settings.Enabled": "启用",
+  "Settings.Hint": "手持鱼竿即可自动抛竿与收杆。",
+  "Settings.ShowMessages": "显示渔获消息",
+  "Settings.ShowIcons": "消息中显示物品图标",
+  "Settings.ShareToChat": "分享消息到聊天（联机）",
+  "Settings.RecastDelay": "再次抛竿延迟（帧）",
+  "Settings.Toggle": "快捷键：{0}",
+  "Settings.Unbound": "（未绑定）",
+  "Keybind.Toggle": "自动钓鱼 开关",
+  "Chat.On": "自动钓鱼：开",
+  "Chat.Off": "自动钓鱼：关",
+  "Chat.Ready": "自动钓鱼已就绪。手持鱼竿。快捷键 {0}。当前：{1}"
+}

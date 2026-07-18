@@ -1,0 +1,14 @@
+{
+  "Settings.Enabled": "Enabled",
+  "Settings.Hint": "Shows phone info displays. No teleport.",
+  "Settings.Categories": "Info categories:",
+  "Settings.Clock": "Clock (exact time)",
+  "Settings.Position": "Position + depth",
+  "Settings.Weather": "Weather / wind",
+  "Settings.Fishing": "Fishing power",
+  "Settings.Moon": "Moon phase / events",
+  "Settings.Rare": "Rare creatures nearby",
+  "Settings.Detection": "Detection (enemies/treasure/ore/DPS)",
+  "Settings.Movement": "Movement speed",
+  "Settings.Tip": "Tip: hover the info icons (top-left) for details."
+}

@@ -78,7 +78,9 @@ TIMF.UI / 示例模组 → 独立 DLL（库模组通过 Services 暴露能力）
   - 环境变量 `TIMF_TERRARIA` = 绝对路径，或
   - 复制到 `lib/Terraria.exe`（已 gitignore），或
   - 常见 Steam 路径会自动探测
-- **32 位** MinGW-w64（`i686` 的 `g++`）用于编译 Bootstrap
+- **32 位** MinGW-w64（`i686` 的 `g++`）用于编译 Bootstrap  
+  - 本机常见路径：`C:\msys64\mingw32\bin`，或设 `TIMF_MINGW_GPP` 指向 `g++.exe`  
+  - GitHub Actions 使用固定版本的 [winlibs i686](https://github.com/brechtsanders/winlibs_mingw) 工具链（不再依赖 MSYS2 `MINGW32` 包，避免 runner 上 `C:\msys64\mingw32\bin` 空缺）
 
 ### 命令
 

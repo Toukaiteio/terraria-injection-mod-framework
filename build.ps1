@@ -61,21 +61,35 @@ function Test-I686Gpp([string]$path) {
 }
 
 $MingwGpp = $null
+# CI / override first (winlibs install step exports TIMF_MINGW_GPP).
+if ($env:TIMF_MINGW_GPP -and (Test-I686Gpp $env:TIMF_MINGW_GPP)) {
+  $MingwGpp = $env:TIMF_MINGW_GPP
+}
 $candidates = @(
   "D:\i686-8.1.0-release-posix-dwarf-rt_v6-rev0\mingw32\bin\g++.exe",
   "C:\tools\msys64\mingw32\bin\g++.exe",
   "C:\msys64\mingw32\bin\g++.exe",
   "D:\msys64\mingw32\bin\g++.exe"
 )
-foreach ($c in $candidates) {
-  if (Test-I686Gpp $c) { $MingwGpp = $c; break }
+if (-not $MingwGpp) {
+  foreach ($c in $candidates) {
+    if (Test-I686Gpp $c) { $MingwGpp = $c; break }
+  }
 }
 if (-not $MingwGpp) {
-  $cmd = Get-Command g++ -ErrorAction SilentlyContinue
-  if ($cmd -and (Test-I686Gpp $cmd.Source)) { $MingwGpp = $cmd.Source }
+  # Prefer g++.exe (Windows) over bare g++ (Git Bash may shadow with non-i686).
+  foreach ($name in @("g++.exe", "g++")) {
+    $cmd = Get-Command $name -ErrorAction SilentlyContinue
+    if ($cmd -and (Test-I686Gpp $cmd.Source)) { $MingwGpp = $cmd.Source; break }
+  }
 }
 if (-not $MingwGpp) {
-  Write-Warning "32-bit (i686) g++ not found. Skipping Bootstrap build. Install MinGW-w64 i686 and re-run."
+  $msg = "32-bit (i686) g++ not found. Install MinGW-w64 i686 or set TIMF_MINGW_GPP."
+  # GitHub Actions / explicit require must never produce a dist without Bootstrap.
+  if ($env:GITHUB_ACTIONS -eq "true" -or $env:TIMF_REQUIRE_BOOTSTRAP -eq "1") {
+    throw $msg
+  }
+  Write-Warning "$msg Skipping Bootstrap build."
 } else {
   Write-Host "Using g++: $MingwGpp ($(& $MingwGpp -dumpmachine))"
   $bootSrc = Join-Path $Root "src\TIMF.Bootstrap\bootstrap.cpp"

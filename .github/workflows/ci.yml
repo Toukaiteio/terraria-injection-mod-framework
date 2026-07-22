@@ -59,24 +59,69 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-nuget-
 
-      - name: Setup MSYS2 (i686 MinGW for Bootstrap)
-        uses: msys2/setup-msys2@v2
+      # MSYS2 MINGW32/i686 packages are flaky or empty on current GH runners
+      # (setup-msys2 + mingw-w64-i686-gcc often leaves C:\msys64\mingw32\bin without g++).
+      # Use a pinned winlibs i686 MinGW-w64 zip instead — pure download, no pacman.
+      - name: Cache i686 MinGW toolchain
+        id: cache-mingw
+        uses: actions/cache@v4
         with:
-          msystem: MINGW32
-          update: true
-          install: mingw-w64-i686-gcc
-          path-type: minimal
+          path: ${{ runner.temp }}/mingw-i686
+          key: winlibs-i686-16.1.0-posix-dwarf-ucrt-r3
 
-      - name: Add mingw32 g++ to PATH
+      - name: Install i686 MinGW (Bootstrap)
         shell: pwsh
         run: |
-          $bin = "C:\msys64\mingw32\bin"
-          if (-not (Test-Path (Join-Path $bin "g++.exe"))) {
-            throw "mingw32 g++ not found at $bin"
+          $ErrorActionPreference = "Stop"
+          $toolRoot = Join-Path $env:RUNNER_TEMP "mingw-i686"
+
+          function Find-I686Gpp([string]$root) {
+            if (-not (Test-Path $root)) { return $null }
+            $hit = Get-ChildItem -Path $root -Filter "g++.exe" -Recurse -ErrorAction SilentlyContinue |
+              Where-Object { $_.DirectoryName -match '[\\/]bin$' } |
+              Select-Object -First 1
+            if ($null -eq $hit) { return $null }
+            return $hit.FullName
           }
+
+          $gpp = Find-I686Gpp $toolRoot
+          if (-not $gpp) {
+            New-Item -ItemType Directory -Force -Path $toolRoot | Out-Null
+            $zipName = "winlibs-i686-posix-dwarf-gcc-16.1.0-mingw-w64ucrt-14.0.0-r3.zip"
+            $url = "https://github.com/brechtsanders/winlibs_mingw/releases/download/16.1.0posix-14.0.0-ucrt-r3/$zipName"
+            $zipPath = Join-Path $env:RUNNER_TEMP $zipName
+            Write-Host "Downloading $url"
+            Invoke-WebRequest -Uri $url -OutFile $zipPath -UseBasicParsing
+            if (-not (Test-Path $zipPath) -or (Get-Item $zipPath).Length -lt 10MB) {
+              throw "Downloaded MinGW zip looks invalid: $zipPath"
+            }
+            Write-Host "Extracting to $toolRoot ($((Get-Item $zipPath).Length) bytes)"
+            Expand-Archive -Path $zipPath -DestinationPath $toolRoot -Force
+            Remove-Item $zipPath -Force -ErrorAction SilentlyContinue
+            $gpp = Find-I686Gpp $toolRoot
+          }
+
+          if (-not $gpp -or -not (Test-Path $gpp)) {
+            Write-Host "Tree under $toolRoot (depth 3):"
+            Get-ChildItem $toolRoot -Recurse -Depth 3 -ErrorAction SilentlyContinue |
+              Select-Object -First 40 FullName |
+              ForEach-Object { Write-Host "  $($_.FullName)" }
+            throw "i686 g++.exe not found under $toolRoot after install"
+          }
+
+          $bin = Split-Path -Parent $gpp
+          $machine = (& $gpp -dumpmachine | Out-String).Trim()
+          Write-Host "g++: $gpp"
+          Write-Host "machine: $machine"
+          & $gpp --version | Select-Object -First 1
+          if ($machine -notmatch 'i686|i386') {
+            throw "g++ is not an i686 toolchain ($machine)"
+          }
+
+          # Subsequent steps (build.ps1 / partial Bootstrap) resolve g++ via PATH + TIMF_MINGW_GPP.
           Add-Content -Path $env:GITHUB_PATH -Value $bin
-          & (Join-Path $bin "g++.exe") -dumpmachine
-          & (Join-Path $bin "g++.exe") --version | Select-Object -First 1
+          "TIMF_MINGW_GPP=$gpp" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "TIMF_REQUIRE_BOOTSTRAP=1" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
       - name: Verify XNA reference DLLs
         shell: pwsh
@@ -148,6 +193,14 @@ jobs:
           if (-not (Test-Path "dist\TIMF.Launcher.exe")) { throw "Launcher missing from dist" }
           if (-not (Test-Path "dist\TIMF.Abstractions.dll")) { throw "Abstractions missing from dist" }
           if (-not (Test-Path "dist\Mods\TIMF.UI\TIMF.UI.dll")) { throw "TIMF.UI missing from dist" }
+          # PE machine = 0x014c (i386) — Bootstrap must be 32-bit for Terraria.exe.
+          $bytes = [IO.File]::ReadAllBytes("dist\TIMF.Bootstrap.dll")
+          $peOff = [BitConverter]::ToInt32($bytes, 0x3C)
+          $machine = [BitConverter]::ToUInt16($bytes, $peOff + 4)
+          if ($machine -ne 0x014c) {
+            throw ("TIMF.Bootstrap.dll PE Machine=0x{0:X4}, expected 0x014C (i386)" -f $machine)
+          }
+          Write-Host "Bootstrap PE32 i386 OK ($((Get-Item dist\TIMF.Bootstrap.dll).Length) bytes)"
           if (-not (Test-Path "dist\0Harmony.dll")) {
             Write-Warning "0Harmony.dll not found next to Core — Harmony may be missing from package"
           }
@@ -176,8 +229,12 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "Abstractions build failed" }
 
           Write-Host "==> Bootstrap (i686 g++)"
-          $gpp = (Get-Command g++.exe -ErrorAction Stop).Source
+          $gpp = $env:TIMF_MINGW_GPP
+          if (-not $gpp -or -not (Test-Path $gpp)) {
+            $gpp = (Get-Command g++.exe -ErrorAction Stop).Source
+          }
           $machine = (& $gpp -dumpmachine | Out-String).Trim()
+          Write-Host "Using g++: $gpp ($machine)"
           if ($machine -notmatch 'i686|i386|mingw32') {
             throw "g++ is not i686 ($machine). Check MinGW install step."
           }
@@ -188,6 +245,14 @@ jobs:
             -o dist\TIMF.Bootstrap.dll `
             -lole32 -loleaut32 -luuid "-Wl,--kill-at"
           if ($LASTEXITCODE -ne 0) { throw "Bootstrap g++ build failed" }
+          if (-not (Test-Path "dist\TIMF.Bootstrap.dll")) { throw "Bootstrap output missing" }
+          $bytes = [IO.File]::ReadAllBytes("dist\TIMF.Bootstrap.dll")
+          $peOff = [BitConverter]::ToInt32($bytes, 0x3C)
+          $peMachine = [BitConverter]::ToUInt16($bytes, $peOff + 4)
+          if ($peMachine -ne 0x014c) {
+            throw ("TIMF.Bootstrap.dll PE Machine=0x{0:X4}, expected 0x014C (i386)" -f $peMachine)
+          }
+          Write-Host "Bootstrap PE32 i386 OK ($((Get-Item dist\TIMF.Bootstrap.dll).Length) bytes)"
 
           Copy-Item src\TIMF.Launcher\bin\Release\net48\TIMF.Launcher.exe dist\ -Force
           Copy-Item src\TIMF.Abstractions\bin\Release\net48\TIMF.Abstractions.dll dist\ -Force

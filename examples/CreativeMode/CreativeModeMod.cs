@@ -12,7 +12,7 @@ namespace CreativeMode
     /// Debug / creative helper: browse the full vanilla item list, search by name / id / pinyin,
     /// choose a quantity, and give the selected item (or coins) to the local player.
     /// </summary>
-    [TimfMod(Id = "CreativeMode")]
+    [TimfMod(Id = "CreativeMode", Side = TimfSide.Client)]
     [TimfDependsOn("TIMF.UI", MinVersion = "1.0.0")]
     public sealed class CreativeModeMod : IMod, IModSettings
     {

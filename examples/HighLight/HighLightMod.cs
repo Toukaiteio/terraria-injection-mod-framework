@@ -13,7 +13,7 @@ namespace HighLight
     /// plus velocity-based direction lines on hostile projectiles.
     /// Behavior inspired by the tML HighLight client mod (not a source port).
     /// </summary>
-    [TimfMod]
+    [TimfMod(Id = "HighLight", Side = TimfSide.Client)]
     public sealed class HighLightMod : IMod, IModSettings
     {
         private IModContext _ctx;
@@ -158,6 +158,8 @@ namespace HighLight
                 _frameCounter = 0;
 
                 var sb = Main.spriteBatch;
+                // World-space overlay: same transform as vanilla combat text / entity overlays.
+                // +/- zoom writes GameZoomTarget → GameViewMatrix.Zoom; Identity would desync boxes.
                 sb.Begin(
                     SpriteSortMode.Deferred,
                     BlendState.AlphaBlend,
@@ -165,7 +167,7 @@ namespace HighLight
                     DepthStencilState.None,
                     RasterizerState.CullNone,
                     null,
-                    Matrix.Identity);
+                    GetWorldOverlayMatrix());
 
                 try
                 {
@@ -287,25 +289,85 @@ namespace HighLight
             sb.Draw(_pixel, new Rectangle(x + width - t, y, t, height), color);       // right
         }
 
-        /// <summary>Skip entities far off-screen to avoid useless draws.</summary>
-        private static bool IsNearScreen(Vector2 screenPos, float size)
+        /// <summary>
+        /// Camera-relative world pixels → final screen via <see cref="Main.GameViewMatrix"/>.
+        /// Matches vanilla world overlays (combat text uses ZoomMatrix + pos - screenPosition).
+        /// </summary>
+        private static Matrix GetWorldOverlayMatrix()
         {
+            try
+            {
+                if (Main.GameViewMatrix != null)
+                    return Main.GameViewMatrix.ZoomMatrix;
+            }
+            catch
+            {
+                // ignore — fall back to identity
+            }
+
+            return Matrix.Identity;
+        }
+
+        /// <summary>Current game zoom (1–2 from +/- keys, times ForcedMinimumZoom).</summary>
+        private static float GetGameZoom()
+        {
+            try
+            {
+                if (Main.GameViewMatrix != null)
+                {
+                    var z = Main.GameViewMatrix.Zoom;
+                    if (z.X > 0.01f)
+                        return z.X;
+                }
+            }
+            catch { /* ignore */ }
+
+            try
+            {
+                return MathHelper.Clamp(Main.GameZoomTarget, 1f, 2f);
+            }
+            catch
+            {
+                return 1f;
+            }
+        }
+
+        /// <summary>Skip entities far off-screen to avoid useless draws (accounts for zoom).</summary>
+        private static bool IsNearScreen(Vector2 cameraRelative, float size)
+        {
+            // ZoomMatrix scales around screen center: when zoomed in, less world is visible.
+            var zoom = Math.Max(0.01f, GetGameZoom());
+            var halfW = Main.screenWidth * 0.5f;
+            var halfH = Main.screenHeight * 0.5f;
+            var viewHalfW = halfW / zoom;
+            var viewHalfH = halfH / zoom;
             var pad = Math.Max(64f, size);
-            return screenPos.X >= -pad
-                && screenPos.Y >= -pad
-                && screenPos.X <= Main.screenWidth + pad
-                && screenPos.Y <= Main.screenHeight + pad;
+            var dx = cameraRelative.X - halfW;
+            var dy = cameraRelative.Y - halfH;
+            return dx >= -viewHalfW - pad
+                && dy >= -viewHalfH - pad
+                && dx <= viewHalfW + pad
+                && dy <= viewHalfH + pad;
         }
 
         private static float RayToScreenEdge(Vector2 origin, Vector2 dir)
         {
-            // dir assumed unit length.
+            // dir assumed unit length. Bounds are in camera-relative (pre-ZoomMatrix) space —
+            // same space as combat text positions. Visible edges shrink with zoom.
+            var zoom = Math.Max(0.01f, GetGameZoom());
+            var halfW = Main.screenWidth * 0.5f;
+            var halfH = Main.screenHeight * 0.5f;
+            var left = halfW - halfW / zoom;
+            var right = halfW + halfW / zoom;
+            var top = halfH - halfH / zoom;
+            var bottom = halfH + halfH / zoom;
+
             var maxX = dir.X > 0f
-                ? (Main.screenWidth - origin.X) / dir.X
-                : (dir.X < 0f ? origin.X / -dir.X : float.PositiveInfinity);
+                ? (right - origin.X) / dir.X
+                : (dir.X < 0f ? (origin.X - left) / -dir.X : float.PositiveInfinity);
             var maxY = dir.Y > 0f
-                ? (Main.screenHeight - origin.Y) / dir.Y
-                : (dir.Y < 0f ? origin.Y / -dir.Y : float.PositiveInfinity);
+                ? (bottom - origin.Y) / dir.Y
+                : (dir.Y < 0f ? (origin.Y - top) / -dir.Y : float.PositiveInfinity);
             return Math.Min(maxX, maxY);
         }
 

@@ -17,7 +17,7 @@ namespace AutoHeal
     ///
     /// Driven from <see cref="IPlayerUpdateHook"/> (Player.ItemCheck prefix).
     /// </summary>
-    [TimfMod(Id = "AutoHeal")]
+    [TimfMod(Id = "AutoHeal", Side = TimfSide.Client)]
     public sealed class AutoHealMod : IMod, IModSettings, IPlayerUpdateHook
     {
         private IModContext _ctx;

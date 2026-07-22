@@ -12,7 +12,7 @@ namespace LowHealthWarning
     /// Screen-edge red vignette when local player HP is low.
     /// Only paints a thin fading border — center FOV stays clear.
     /// </summary>
-    [TimfMod(Id = "LowHealthWarning")]
+    [TimfMod(Id = "LowHealthWarning", Side = TimfSide.Client)]
     public sealed class LowHealthWarningMod : IMod, IModSettings
     {
         private const string ToggleId = "LowHealthWarning.Toggle";

@@ -54,6 +54,22 @@ foreach ($dir in $modDirs) {
   New-Item -ItemType Directory -Force -Path $outDir | Out-Null
   Copy-Item $dll (Join-Path $outDir "$id.dll") -Force
 
+  # Dependency DLLs (NuGet packages like NPinyin) — copy non-framework dlls from build output.
+  $binDir = Split-Path $dll
+  $frameworkPrefixes = @("TIMF.", "Terraria", "Microsoft.Xna", "0Harmony", "ReLogic", "System.", "mscorlib")
+  Get-ChildItem $binDir -Filter "*.dll" -File -ErrorAction SilentlyContinue | ForEach-Object {
+    $n = $_.Name
+    if ($n -eq "$id.dll") { return }
+    $isFramework = $false
+    foreach ($p in $frameworkPrefixes) {
+      if ($n.StartsWith($p, [StringComparison]::OrdinalIgnoreCase)) { $isFramework = $true; break }
+    }
+    if (-not $isFramework) {
+      Copy-Item $_.FullName (Join-Path $outDir $n) -Force
+      Write-Host "    dep: $n"
+    }
+  }
+
   # Assets: any png in the mod source folder.
   Get-ChildItem $dir.FullName -Filter *.png -File -ErrorAction SilentlyContinue | ForEach-Object {
     Copy-Item $_.FullName (Join-Path $outDir $_.Name) -Force

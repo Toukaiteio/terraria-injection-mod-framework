@@ -20,10 +20,27 @@ namespace TIMF.Core.Modding
         public Type EntryType { get; set; }
         public string Id { get; set; }
         public string Version { get; set; }
+        public TimfSide Side { get; set; } = TimfSide.Client;
+        public bool RequiredOnJoin { get; set; } = true;
         public List<ModDep> Deps { get; } = new List<ModDep>();
         public string FailReason { get; set; }
         public IMod Instance { get; set; }
         public bool Loaded { get; set; }
+        /// <summary>User enable preference (config/enabled-mods.json). Default true.</summary>
+        public bool UserEnabled { get; set; } = true;
+        /// <summary>True when server path is active this session (Server Load or Both.OnServerActivate).</summary>
+        public bool ServerActive { get; set; }
+        public IModContext Context { get; set; }
+
+        public bool ParticipatesInServer
+        {
+            get { return Side == TimfSide.Server || Side == TimfSide.Both; }
+        }
+
+        public bool ParticipatesInClient
+        {
+            get { return Side == TimfSide.Client || Side == TimfSide.Both; }
+        }
 
         public IEnumerable<string> HardDepIds
         {
@@ -76,6 +93,8 @@ namespace TIMF.Core.Modding
             {
                 if (!string.IsNullOrWhiteSpace(attr.Id))
                     d.Id = attr.Id.Trim();
+                d.Side = attr.Side;
+                d.RequiredOnJoin = attr.RequiredOnJoin;
                 AddCsv(d, attr.Dependencies, soft: false);
                 AddCsv(d, attr.LoadAfter, soft: true);
             }

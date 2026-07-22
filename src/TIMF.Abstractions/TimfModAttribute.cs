@@ -22,5 +22,16 @@ namespace TIMF.Abstractions
         /// Comma-separated soft load-after ids (alternative to [TimfLoadAfter]).
         /// </summary>
         public string LoadAfter { get; set; }
+
+        /// <summary>
+        /// Client / Server / Both. Default <see cref="TimfSide.Client"/> (no handshake exposure).
+        /// </summary>
+        public TimfSide Side { get; set; } = TimfSide.Client;
+
+        /// <summary>
+        /// When <see cref="Side"/> is Server or Both: host requires joining clients to have this mod.
+        /// Missing required mods causes a kick. Default true.
+        /// </summary>
+        public bool RequiredOnJoin { get; set; } = true;
     }
 }

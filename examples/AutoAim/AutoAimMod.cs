@@ -15,7 +15,7 @@ namespace AutoAim
     /// Runs from IPlayerUpdateHook which fires as a Prefix on Player.ItemCheck (after input
     /// CopyInto, so controlUseItem is not overwritten by the real mouse that frame).
     /// </summary>
-    [TimfMod(Id = "AutoAim")]
+    [TimfMod(Id = "AutoAim", Side = TimfSide.Client)]
     public sealed class AutoAimMod : IMod, IModSettings, IPlayerUpdateHook
     {
         private IModContext _ctx;

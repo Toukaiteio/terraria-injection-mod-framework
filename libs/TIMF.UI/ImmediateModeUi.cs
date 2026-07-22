@@ -5,6 +5,7 @@ using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
 using Terraria;
+using Terraria.GameInput;
 using TIMF.Abstractions;
 
 namespace TIMF.UI
@@ -89,6 +90,11 @@ namespace TIMF.UI
         private bool _ownedBlockInput;
         private bool _wantBlockInputThisFrame;
         private bool _ownedBlockMouse;
+        // PlayerInput.WritingText gates Main.HandleIME() → IImeService.Enable/Disable.
+        // Without it the keyInt/keyString buffer stays empty and GetInputText returns unchanged text.
+        private bool _ownedWritingText;
+        private bool _wantWritingTextThisFrame;
+        private int _inputDiagCounter;
         private double _keyRepeatTimer;
         private Keys _lastRepeatKey = Keys.None;
         private double _frameSeconds = 1.0 / 60.0;
@@ -146,8 +152,13 @@ namespace TIMF.UI
             _wantCaptureKeyboard = false;
             _anyWindowOpen = false;
             _hotId = null;
-            // InputText re-asserts this each frame while focused; if nothing does, we release.
+            // InputText re-asserts these each frame while focused; if nothing does, we release.
             _wantBlockInputThisFrame = false;
+            _wantWritingTextThisFrame = false;
+
+            // Discard OS char buffer if no input was focused last frame (stale keystrokes).
+            if (_focusedInputId == null)
+                UiNative.ClearChars();
 
             _prevMouse = _mouse;
             _prevKeyboard = _keyboard;
@@ -480,6 +491,10 @@ namespace TIMF.UI
             // Only keep blockInput while a field re-requested it this frame.
             if (_ownedBlockInput && !_wantBlockInputThisFrame)
                 TrySetBlockInput(false);
+
+            // Same for WritingText (gates IME service).
+            if (_ownedWritingText && !_wantWritingTextThisFrame)
+                TrySetWritingText(false);
         }
 
         private void ReleaseOwnedBlockMouse()
@@ -1234,6 +1249,7 @@ namespace TIMF.UI
             {
                 _wantCaptureKeyboard = true;
                 TrySetBlockInput(true);
+                TrySetWritingText(true);
                 changed = ProcessTextInput(ref value, maxLength);
             }
 
@@ -1284,9 +1300,128 @@ namespace TIMF.UI
             }
         }
 
+        // --- Reflection cache: FocusHelper.IsSelectedApplication (gates AllowUIInputs → GetInputText) ---
+        private static FieldInfo _isSelectedField;
+        private static bool _focusResolved;
+        // --- Reflection cache: IImeService.Enable() ---
+        private static object _imeService;
+        private static MethodInfo _imeEnable;
+        private static MethodInfo _imeDisable;
+        private static bool _imeResolved;
+
+        private static void ResolveFocusHelper()
+        {
+            if (_focusResolved) return;
+            _focusResolved = true;
+            try
+            {
+                var t = typeof(Main).Assembly.GetType("Terraria.FocusHelper");
+                if (t != null)
+                    _isSelectedField = t.GetField("IsSelectedApplication",
+                        BindingFlags.Public | BindingFlags.Static);
+            }
+            catch { /* ignore */ }
+        }
+
+        private static void ResolveImeService()
+        {
+            if (_imeResolved) return;
+            _imeResolved = true;
+            try
+            {
+                // Platform.Get<IImeService>() — ReLogic.OS.Platform
+                foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
+                {
+                    var platType = asm.GetType("ReLogic.OS.Platform");
+                    if (platType == null) continue;
+                    var getMethod = platType.GetMethod("Get",
+                        BindingFlags.Public | BindingFlags.Static, null, Type.EmptyTypes, null);
+                    if (getMethod == null)
+                    {
+                        // Generic: Platform.Get<T>()
+                        foreach (var m in platType.GetMethods(BindingFlags.Public | BindingFlags.Static))
+                        {
+                            if (m.Name == "Get" && m.IsGenericMethodDefinition
+                                && m.GetParameters().Length == 0)
+                            {
+                                getMethod = m;
+                                break;
+                            }
+                        }
+                    }
+                    if (getMethod == null) continue;
+
+                    // Find IImeService type
+                    Type imeType = null;
+                    foreach (var a in AppDomain.CurrentDomain.GetAssemblies())
+                    {
+                        imeType = a.GetType("ReLogic.Localization.IME.IImeService");
+                        if (imeType != null) break;
+                    }
+                    if (imeType == null) continue;
+
+                    if (getMethod.IsGenericMethodDefinition)
+                        getMethod = getMethod.MakeGenericMethod(imeType);
+
+                    _imeService = getMethod.Invoke(null, null);
+                    if (_imeService != null)
+                    {
+                        _imeEnable = imeType.GetMethod("Enable");
+                        _imeDisable = imeType.GetMethod("Disable");
+                    }
+                    break;
+                }
+            }
+            catch { /* ignore */ }
+        }
+
         /// <summary>
-        /// Apply typed keys to the focused field. Prefers Main.GetInputText for IME;
-        /// falls back to key scanning for backspace / printable when needed.
+        /// Manage PlayerInput.WritingText AND directly enable IImeService.
+        /// WritingText gates Main.HandleIME() → IImeService.Enable/Disable.
+        /// We also call IImeService.Enable() directly to bypass the HandleIME toggle
+        /// (which runs in DrawPlayerChat layer 35, before our DrawCursor layer 37).
+        /// </summary>
+        private void TrySetWritingText(bool value)
+        {
+            try
+            {
+                if (value)
+                {
+                    PlayerInput.WritingText = true;
+                    _ownedWritingText = true;
+                    _wantWritingTextThisFrame = true;
+
+                    // Directly enable IME service (don't wait for HandleIME toggle).
+                    ResolveImeService();
+                    try { _imeEnable?.Invoke(_imeService, null); }
+                    catch { /* ignore */ }
+                }
+                else if (_ownedWritingText)
+                {
+                    // Only clear if we own it and vanilla chat/sign/chest is not active.
+                    if (!Main.drawingPlayerChat && !Main.editSign && !Main.editChest)
+                    {
+                        PlayerInput.WritingText = false;
+                        try { _imeDisable?.Invoke(_imeService, null); }
+                        catch { /* ignore */ }
+                    }
+                    _ownedWritingText = false;
+                    _wantWritingTextThisFrame = false;
+                }
+            }
+            catch
+            {
+                // Property may not exist on some builds.
+            }
+        }
+
+        /// <summary>
+        /// Apply typed keys to the focused field.
+        /// Primary: Main.GetInputText — the vanilla text input pipeline. Handles keyInt buffer
+        /// (IME-composed Chinese + English), backspace with repeat, Ctrl+V/Z/X/C, and Escape.
+        /// We bypass FocusHelper.AllowUIInputs by setting IsSelectedApplication=true via reflection
+        /// (in the injection context the game window focus detection may fail).
+        /// Fallback: ProcessKeyFallback (ASCII) + clipboard paste, if GetInputText is unavailable.
         /// </summary>
         private bool ProcessTextInput(ref string value, int maxLength)
         {
@@ -1296,73 +1431,97 @@ namespace TIMF.UI
 
             var changed = false;
             var usedGetInputText = false;
-            var before = value ?? "";
 
-            // Prefer vanilla input path so Chinese IME composition works.
+            // --- Primary: Main.GetInputText (full vanilla input pipeline) ---
             try
             {
-                var next = Main.GetInputText(before, false);
-                if (next == null)
-                    next = "";
-                if (next.Length > maxLength)
-                    next = next.Substring(0, maxLength);
-                if (!string.Equals(next, before, StringComparison.Ordinal))
+                // Bypass FocusHelper.AllowUIInputs guard (returns IsSelectedApplication).
+                ResolveFocusHelper();
+                if (_isSelectedField != null)
+                    _isSelectedField.SetValue(null, true);
+
+                var before = value ?? "";
+                var result = Main.GetInputText(before, false);
+
+                // GetInputText sets inputTextEscape when Escape is pressed.
+                if (Main.inputTextEscape)
                 {
-                    value = next;
+                    _focusedInputId = null;
+                    TrySetBlockInput(false);
+                    TrySetWritingText(false);
+                    Main.inputTextEscape = false;
+                }
+
+                // Enter — ignore for single-line field (don't blur, just consume).
+                if (Main.inputTextEnter)
+                    Main.inputTextEnter = false;
+
+                if (result != null && result.Length > maxLength)
+                    result = result.Substring(0, maxLength);
+
+                if (!string.Equals(result, before, StringComparison.Ordinal))
+                {
+                    value = result ?? "";
                     changed = true;
                 }
-                else
-                {
-                    value = next;
-                }
+
                 usedGetInputText = true;
             }
             catch
             {
-                usedGetInputText = false;
+                // GetInputText unavailable — fall through to fallback.
             }
 
-            // Ctrl+V via OS clipboard (also covers cases where GetInputText paste path fails).
-            // Only run when GetInputText did not already change the text this frame, to avoid double paste.
-            var ctrl = _keyboard.IsKeyDown(Keys.LeftControl) || _keyboard.IsKeyDown(Keys.RightControl);
-            var vDown = _keyboard.IsKeyDown(Keys.V);
-            var vFresh = vDown && _prevKeyboard.IsKeyUp(Keys.V);
-            if (ctrl && vFresh && !changed)
-            {
-                var clip = UiNative.GetClipboardText();
-                if (!string.IsNullOrEmpty(clip))
-                {
-                    // Single-line field: strip newlines.
-                    clip = clip.Replace("\r", "").Replace("\n", " ");
-                    var merged = (value ?? "") + clip;
-                    if (merged.Length > maxLength)
-                        merged = merged.Substring(0, maxLength);
-                    if (!string.Equals(merged, value, StringComparison.Ordinal))
-                    {
-                        value = merged;
-                        changed = true;
-                    }
-                }
-            }
-
-            // Escape blurs regardless of input path.
-            if (_keyboard.IsKeyDown(Keys.Escape) && _prevKeyboard.IsKeyUp(Keys.Escape))
-            {
-                _focusedInputId = null;
-                TrySetBlockInput(false);
-            }
-
-            // If GetInputText handled the frame, do not also scan printable keys (would double-insert ASCII).
-            // Still offer a backspace fallback only when GetInputText was unavailable.
+            // --- Fallback: ProcessKeyFallback (ASCII) + clipboard paste ---
             if (!usedGetInputText)
             {
                 if (ProcessKeyFallback(ref value, maxLength))
                     changed = true;
+
+                // Ctrl+V paste.
+                var ctrl = _keyboard.IsKeyDown(Keys.LeftControl) || _keyboard.IsKeyDown(Keys.RightControl);
+                var vDown = _keyboard.IsKeyDown(Keys.V);
+                var vFresh = vDown && _prevKeyboard.IsKeyUp(Keys.V);
+                if (ctrl && vFresh && !changed)
+                {
+                    var clip = UiNative.GetClipboardText();
+                    if (!string.IsNullOrEmpty(clip))
+                    {
+                        clip = clip.Replace("\r", "").Replace("\n", " ");
+                        var merged = (value ?? "") + clip;
+                        if (merged.Length > maxLength)
+                            merged = merged.Substring(0, maxLength);
+                        if (!string.Equals(merged, value, StringComparison.Ordinal))
+                        {
+                            value = merged;
+                            changed = true;
+                        }
+                    }
+                }
+
+                // Escape blurs.
+                if (_keyboard.IsKeyDown(Keys.Escape) && _prevKeyboard.IsKeyUp(Keys.Escape))
+                {
+                    _focusedInputId = null;
+                    TrySetBlockInput(false);
+                    TrySetWritingText(false);
+                }
             }
-            else
+
+            // --- Diagnostic: log input state every 300 frames (~5s at 60fps) ---
+            if (++_inputDiagCounter >= 300)
             {
-                // Light backspace assist only if GetInputText left the string unchanged while Back is held
-                // and IME is unlikely to be active — skip to avoid fighting GetInputText's own backspace.
+                _inputDiagCounter = 0;
+                try
+                {
+                    _log.Info("[InputDiag] focused=" + (_focusedInputId != null)
+                        + " getInputText=" + usedGetInputText
+                        + " keyCount=" + Main.keyCount
+                        + " writingText=" + PlayerInput.WritingText
+                        + " blockInput=" + Main.blockInput
+                        + " valLen=" + (value ?? "").Length);
+                }
+                catch { /* ignore */ }
             }
 
             return changed;

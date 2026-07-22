@@ -42,19 +42,49 @@ if (Test-Path $timfUi) {
 }
 
 Write-Host "==> Building native Bootstrap (MinGW i686)"
-$MingwGpp = "D:\i686-8.1.0-release-posix-dwarf-rt_v6-rev0\mingw32\bin\g++.exe"
-if (-not (Test-Path $MingwGpp)) {
-  $cmd = Get-Command g++ -ErrorAction SilentlyContinue
-  if ($cmd) { $MingwGpp = $cmd.Source }
+# Prefer known i686 toolchains over a random PATH g++ (often mingw64, which cannot -m32 link).
+function Test-I686Gpp([string]$path) {
+  if (-not $path -or -not (Test-Path $path)) { return $false }
+  try {
+    $out = & $path -dumpmachine 2>$null
+    if ($LASTEXITCODE -ne 0) { return $false }
+    $m = ($out | Out-String).Trim()
+    # Accept i686-*/mingw32 targets. Reject x86_64-*-mingw*.
+    if ($m -match '^(i[3-6]86|mingw32)') { return $true }
+    if ($m -match 'x86_64') { return $false }
+    # Some toolchains report i686-w64-mingw32
+    if ($m -match 'i686') { return $true }
+    return $false
+  } catch {
+    return $false
+  }
 }
-if (-not $MingwGpp -or -not (Test-Path $MingwGpp)) {
-  Write-Warning "32-bit g++ not found. Skipping Bootstrap build. Install MinGW-w64 i686 and re-run."
+
+$MingwGpp = $null
+$candidates = @(
+  "D:\i686-8.1.0-release-posix-dwarf-rt_v6-rev0\mingw32\bin\g++.exe",
+  "C:\tools\msys64\mingw32\bin\g++.exe",
+  "C:\msys64\mingw32\bin\g++.exe",
+  "D:\msys64\mingw32\bin\g++.exe"
+)
+foreach ($c in $candidates) {
+  if (Test-I686Gpp $c) { $MingwGpp = $c; break }
+}
+if (-not $MingwGpp) {
+  $cmd = Get-Command g++ -ErrorAction SilentlyContinue
+  if ($cmd -and (Test-I686Gpp $cmd.Source)) { $MingwGpp = $cmd.Source }
+}
+if (-not $MingwGpp) {
+  Write-Warning "32-bit (i686) g++ not found. Skipping Bootstrap build. Install MinGW-w64 i686 and re-run."
 } else {
+  Write-Host "Using g++: $MingwGpp ($(& $MingwGpp -dumpmachine))"
   $bootSrc = Join-Path $Root "src\TIMF.Bootstrap\bootstrap.cpp"
   $bootOut = Join-Path $Dist "TIMF.Bootstrap.dll"
+  # Fully static CRT/pthread (-static). Without this, MinGW emits a dependency on
+  # libwinpthread-1.dll; Terraria's LoadLibrary then fails (DLL not on game search path).
+  # -static-libgcc alone is NOT enough for winpthread on this toolchain.
   $argsGpp = @(
-    "-shared", "-m32", "-O2",
-    "-static-libgcc", "-static-libstdc++",
+    "-shared", "-m32", "-O2", "-static",
     $bootSrc,
     "-o", $bootOut,
     "-lole32", "-loleaut32", "-luuid",

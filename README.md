@@ -1,6 +1,6 @@
 # TIMF — Terraria Injection Mod Framework
 
-面向 **原版泰拉瑞亚 1.4.5.x** 的客户端注入式模组框架（**不依赖 tModLoader**）。
+面向 **原版泰拉瑞亚 1.4.5.x** 的注入式模组框架（**不依赖 tModLoader**），支持客户端与服务器侧模组区分。
 
 当前 tModLoader 仍停留在 1.4.4 时，可用 TIMF 在新版客户端上加载简单的 **客户端侧** 模组。内置模组：
 
@@ -30,6 +30,18 @@ TIMF.UI / 示例模组 → 独立 DLL（库模组通过 Services 暴露能力）
 ```
 
 游戏为 **.NET Framework 4.x / x86 / XNA 4.0**。模组叠加层走公共事件 `Main.OnPostDraw`；框架菜单版本号用 **Harmony** 挂在 `Main.DrawVersionNumber` 上以保证同批绘制。
+
+### 绘制坐标系（缩放 / HUD）
+
+`+/-` 改的是 `Main.GameZoomTarget`，每帧写入 `Main.GameViewMatrix.Zoom`。叠加层必须按用途选矩阵：
+
+| 用途 | `SpriteBatch` 矩阵 | 坐标写法 |
+|------|-------------------|----------|
+| **贴实体世界叠加**（hitbox 框、战斗字同类） | `Main.GameViewMatrix.ZoomMatrix` | `world - Main.screenPosition`（矩阵负责缩放） |
+| **屏幕像素 HUD**（血量边框、固定 UI） | `Matrix.Identity`（或 `UIScaleMatrix` 给 UI 库） | 直接用屏幕像素 |
+| **绕玩家的 HUD 环**（BossCursor / BlockLocator 箭头） | `Matrix.Identity` | 锚点：`Vector2.Transform(world - screenPosition, ZoomMatrix)`；环半径用屏幕像素 |
+| **瞄准 / 读鼠标世界坐标** | — | `Main.mouseX/Y` 在 world 输入阶段已是相机相对；`Main.MouseWorld ≈ mouse + screenPosition` |
+| **地图图标** | 游戏 `MapIconOverlay` 的 batch | `IMapOverlayHook` + `info.WorldToMap` |
 
 ### UI 框架设计（TIMF.UI）
 
@@ -61,8 +73,11 @@ TIMF.UI / 示例模组 → 独立 DLL（库模组通过 Services 暴露能力）
 ### 依赖
 
 - .NET SDK（用于 `net48` 构建）
-- 已安装 **XNA 4.0 可再发行组件**（本机 GAC 中有 `Microsoft.Xna.Framework*`）
-- 原版游戏 `Terraria.exe`（默认路径可在 `dist/timf.json` 配置）
+- **XNA 4.0 引用 DLL**（仓库已 vendored：`lib/xna/*.dll`；本机 GAC 亦可）
+- 原版游戏 `Terraria.exe` 作为**编译引用**（不会打进产物）
+  - 环境变量 `TIMF_TERRARIA` = 绝对路径，或
+  - 复制到 `lib/Terraria.exe`（已 gitignore），或
+  - 常见 Steam 路径会自动探测
 - **32 位** MinGW-w64（`i686` 的 `g++`）用于编译 Bootstrap
 
 ### 命令
@@ -71,18 +86,20 @@ TIMF.UI / 示例模组 → 独立 DLL（库模组通过 Services 暴露能力）
 
 ```powershell
 cd E:\pj2\terraria-injection-mod-framework
-.\build.ps1 Release        # 框架：Abstractions/Core/Launcher/TIMF.UI + Bootstrap → dist\
-.\build-mods.ps1 Release   # 遍历 mods\*，逐个编译并部署到 dist\Mods\<ModId>\
+.\build.ps1 Release           # 框架：Abstractions/Core/Launcher/TIMF.UI + Bootstrap → dist\
+.\build-mods.ps1 Release      # 遍历 mods\*（本地工作副本）
+.\build-examples.ps1 Release  # 遍历 examples\*（CI / 干净克隆用）
 ```
 
 - `build.ps1` 只编译 `TIMF.sln`（框架 4 个工程）+ 原生 Bootstrap，并把 `TIMF.UI` 作为库模组发布到 `Mods\TIMF.UI\`。
-- `build-mods.ps1` **自动发现** `mods\` 下每个含 `.csproj` 的文件夹，编译后把 `<Name>.dll`、同目录的 `*.png` 素材、以及 `*.default.json` 默认配置一并部署（配置仅在缺失时写入 `dist\config\`）。
+- `build-mods.ps1` **自动发现** `mods\` 下每个含 `.csproj` 的文件夹，编译后把 `<Name>.dll`、同目录的 `*.png` 素材、`Localization\*.json`、以及 `*.default.json` 默认配置一并部署。
+- `build-examples.ps1` 与上相同，但针对仓库内跟踪的 `examples\`（GitHub Actions 用）。
 - 模组通过 **DLL 引用**框架产物（`src\TIMF.Abstractions\bin\...\TIMF.Abstractions.dll`），所以必须先跑 `build.ps1`。
 
 ### 新增自己的模组
 
 1. 在 `mods\<ModId>\` 建一个 `net48` / `x86` 类库，`AssemblyName` = 文件夹名。
-2. DLL 引用 `..\..\src\TIMF.Abstractions\bin\Release\net48\TIMF.Abstractions.dll` 与 `Terraria.exe`。
+2. DLL 引用 `..\..\src\TIMF.Abstractions\bin\Release\net48\TIMF.Abstractions.dll` 与 `$(TimfTerrariaRef)` / `$(TimfXnaDir)`（见 `Directory.Build.props`）。
 3. 实现 `IMod`（可选 `[TimfMod]` / `[TimfDependsOn]` / `IModSettings`）。
 4. `.\build-mods.ps1` 即自动编译部署，无需改任何脚本或 `.sln`。
 
@@ -95,6 +112,43 @@ cd E:\pj2\terraria-injection-mod-framework
   - `Mods\BossCursor\BossCursor.dll` + `Mods\BossCursor\Cursor.png`
   - `Mods\WorldMapIcons\WorldMapIcons.dll`
   - …（`mods\` 里有多少就部署多少）
+
+### GitHub Actions CI/CD
+
+工作流：`.github/workflows/ci.yml`
+
+| 触发 | 行为 |
+|------|------|
+| `push` / `pull_request` → `master`/`main` | Windows x86 构建，上传 `dist` artifact |
+| `push` tag `v*`（如 `v1.0.0`、`v1.1.0-beta.1`） | 完整包校验后打 zip + `.sha256`，创建 GitHub Release |
+| `workflow_dispatch` | 手动重跑；可选 `force_partial`（仅冒烟）/ `include_examples` |
+
+**无游戏引用时（默认 / 公开 runner）：** 构建 `TIMF.Launcher` + `TIMF.Abstractions` + 原生 `TIMF.Bootstrap`（CI 可绿）。产物 artifact 名带 `-partial`。
+
+**完整 Core / UI / 示例模组构建**（任选其一）：
+
+1. **私有下载地址**（推荐用于托管 runner）：仓库 Secrets  
+   - `TERRARIA_REF_URL` — 指向你自己托管的 `Terraria.exe`（仅编译引用）  
+   - `TERRARIA_REF_TOKEN` — 可选 `Authorization: Bearer …`  
+2. **Self-hosted runner**：机器上放好 `lib/Terraria.exe` 或设 `TIMF_TERRARIA`  
+3. **不要**把游戏本体 commit 进仓库；GitHub Secret 上限 ~64KB，无法塞 25MB 的 base64。
+
+**发版注意：**
+
+- 打 `v*` tag 前请先配置 `TERRARIA_REF_URL`（或自托管 runner），否则 **release job 会失败**（禁止发布缺 `TIMF.Core` 的 partial 包）。
+- 含 `-rc` / `-beta` / `-alpha` / `-preview` 的 tag 会标为 **pre-release**。
+- Release 附带 `TIMF-<tag>-win-x86.zip` 与同名 `.sha256`；`dist/BUILD_MANIFEST.txt` 含逐文件 SHA-256。
+- artifact 与 zip **永不**包含 `Terraria.exe` / `TerrariaServer.exe`。
+
+发版示例：
+
+```powershell
+git tag v1.0.0
+git push origin v1.0.0
+# Actions → CI → GitHub Release 自动上传 zip
+```
+
+> artifact 中不会包含 `Terraria.exe`。
 
 ## 运行
 
@@ -148,8 +202,9 @@ cd dist
 
 行为概要：
 
-- 遍历 `Main.npc`：`active && !friendly && !hide` → 在实体中心画红圈
-- 遍历 `Main.projectile`：`active && !friendly && !hide` → 画圈 + 沿 `velocity` 的方向线段（长短/粗细随速度）
+- 遍历 `Main.npc`：`active && !friendly && !hide` → 在实体中心画红圈 / 碰撞箱框
+- 遍历 `Main.projectile`：`active && !friendly && !hide` → 画圈/框 + 沿 `velocity` 的方向线段（长短/粗细随速度）
+- **坐标系**：世界实体叠加层走游戏自带 `Main.GameViewMatrix.ZoomMatrix`（`+/-` 缩放即 `GameZoomTarget`），坐标仍用 `world - Main.screenPosition`；与原版 combat text 同类。**不要**对世界实体用 `Matrix.Identity`，否则缩放后框会偏
 
 ## LowHealthWarning 示例
 
@@ -169,6 +224,72 @@ cd dist
 
 设计要点：只画屏幕**四周渐隐边框**，中间区域不铺色；血量越低边越厚/越红。死亡 / 幽灵态 / 主菜单 / 全屏地图不显示。
 
+
+## 模组侧别（Client / Server / Both）
+
+类似 Minecraft 加载器，TIMF 模组可声明运行侧：
+
+| Side | 含义 | Load 时机 |
+|------|------|-----------|
+| **Client**（默认） | 仅客户端 UI / 叠加层 | 注入后立即 |
+| **Server** | 仅服务器权威逻辑 | **会话激活时**（单人 / 主机 / 专用服 / 握手成功后的联机） |
+| **Both** | 客户端立即 Load；服务器逻辑通过 `IServerMod` 开关 | 立即 + `OnServerActivate` |
+
+```csharp
+[TimfMod(Id = "MyServerMod", Side = TimfSide.Server, RequiredOnJoin = true)]
+public sealed class MyServerMod : IMod { /* Load 仅在服务器逻辑激活时调用 */ }
+
+[TimfMod(Id = "MyBothMod", Side = TimfSide.Both)]
+public sealed class MyBothMod : IMod, IServerMod
+{
+    public void Load(IModContext ctx) { /* 客户端路径 */ }
+    public void OnServerActivate(IModContext ctx) { /* 权威逻辑 */ }
+    public void OnServerDeactivate() { }
+}
+```
+
+### 何时启用服务器侧逻辑
+
+| 场景 | 行为 |
+|------|------|
+| 单人 / Host & Play / 专用服 | 启用**本地全部** Server/Both 服务器逻辑 |
+| 加入第三方服 / 别人的世界 | **默认不启用**任何服务器侧模组 |
+| 对端也有 TIMF + 服务器侧模组 | 通过 **Unused83** 握手；**主机列表权威**，客户端启用 `host ∩ local` |
+| 任一侧没有服务器侧模组 | **不启用握手协议**（纯客户端 TIMF 不发包、不应答，减少暴露） |
+
+匹配规则（主机权威）：
+
+- 主机通告自己的 Server/Both 列表（含 `RequiredOnJoin`）。
+- 客户端只启用主机列表中本地也有、且版本 `local >= host` 的模组。
+- 客户端缺少主机 `RequiredOnJoin=true` 的模组 → 踢出 / 断开。
+- 客户端多出来的服务器模组**不会**启用。
+
+**原版客户端 / 无服务器侧模组的 TIMF 客户端：**
+
+| 主机状态 | 原版客户端加入 |
+|----------|----------------|
+| 有 Server/Both，且至少一个 `RequiredOnJoin=true` | 约 10s 内无 `ClientHello` → 主机 `BootPlayer` 踢出，踢出理由列出所需模组 |
+| 有 Server/Both，但**全部** `RequiredOnJoin=false` | **允许**加入（不强制 TIMF）；主机侧服务器逻辑仍运行 |
+| 装了 TIMF 但**没有任何** Server/Both 模组 | **不装握手**，与原版服无异，原版客户端可正常进 |
+
+查询当前会话：`context.Services.GetService<ITimfSession>()`（`Kind` / `ServerLogicEnabled` / `EnabledServerMods`）。
+
+**启用 / 禁用模组：** 在游戏内 **F9 模组设置** 中可勾选「启用」。偏好写入 `config/enabled-mods.json`（缺省为启用）。禁用后立即 Unload，并在下次启动时跳过；服务器侧模组禁用后不参与握手。`TIMF.UI` 为框架库，不可禁用。
+
+**服务器侧警告：** 当任意 Server/Both 模组在本会话激活时，聊天会提示：加入纯原版服不会启用这些模组；自建主机若带 `RequiredOnJoin` 会拒绝纯原版客户端。列表中用 `[C]` / `[S]` / `[B]` 区分侧别，`[SRV]` 表示本会话服务器逻辑已激活。
+
+### 专用服务器
+
+```powershell
+cd dist
+.\TIMF.Launcher.exe --server
+# 或
+.\TIMF.Launcher.exe --server "E:\SteamLibrary\steamapps\common\Terraria\TerrariaServer.exe"
+```
+
+`timf.json` 可写 `serverPath`。专用进程注入后 `Main.dedServ` 路径会跳过 UI，并激活本地服务器侧模组。客户端-only 模组在专用服上不会 Load。
+
+示例：`examples/TimfServerProbe`（`Side=Server`，日志可见 Activate/Deactivate）。
 ## 模组依赖
 
 加载流程：
@@ -401,6 +522,31 @@ public sealed class MyMod : IMod
 
 tML 概念对照：`ModSystem.PostDraw*` ≈ `IMod.PostDraw` via `Main.OnPostDraw`；库模组 ≈ 带 `Services` 的 soft-framework DLL；`Mods\<ModId>\` 打包 ≈ 每模组独立目录。
 
+## 故障排查：注入失败（LoadLibraryW returned NULL）
+
+日志典型片段：
+
+```text
+Created process pid=...
+Injecting ...\TIMF.Bootstrap.dll
+Injection failed: LoadLibraryW returned NULL in remote process...
+```
+
+含义：启动器已用 `CREATE_SUSPENDED` 拉起 `Terraria.exe`，并在游戏进程里 `CreateRemoteThread(LoadLibraryW)`，但 **远程 `LoadLibraryW` 返回了 0**——Bootstrap **没有**进目标进程。  
+此时 `%TEMP%\timf-bootstrap.log` **不会出现**（只有 Load 成功后 bootstrap 才会写日志）。
+
+| 常见原因 | 处理 |
+|----------|------|
+| **Bootstrap 依赖 MinGW 运行时**（如 `libwinpthread-1.dll`）而游戏目录没有 | 使用静态链接 pthread 的 Bootstrap 构建（`build.ps1` 已加 `-Wl,-Bstatic -lpthread`）；或把 `libwinpthread-1.dll` 放到 `Terraria.exe` / Bootstrap 旁 |
+| **杀软 / Defender / 国内安全软件**拦截远程线程或注入 | 把整个 TIMF 目录 + `Terraria.exe` 加入排除项；必要时临时关实时防护再试 |
+| **Bootstrap 不是 32 位**（误用 x64 编译或损坏包） | 必须用 win-x86 包里的 `TIMF.Bootstrap.dll`（PE32 / i386）。启动器现会在注入前做 PE 架构预检 |
+| **放在「下载」等受保护路径** | 把整个 TIMF 文件夹挪到短路径，例如 `C:\TIMF`，再运行 `TIMF.Launcher.exe` |
+| **受控文件夹访问 / 勒索防护** | 允许 Launcher 或关闭该策略后再试 |
+| 路径过长 | 缩短目录层级（路径 ≥240 字符时启动器会直接提示） |
+
+> 与 Client/Server 侧别无关：注入失败发生在托管代码加载之前。
+
+控制台在失败时会打印分条原因与「Quick fixes」；`logs\launcher.log` 会记录 Bootstrap 的 PE 探测结果（`PE32 i386` 才正确）。
 
 ## 参考
 
@@ -410,7 +556,7 @@ tML 概念对照：`ModSystem.PostDraw*` ≈ `IMod.PostDraw` via `Main.OnPostDra
 
 ## 限制（v1）
 
-- 仅客户端叠加层；无服务端模组、无热重载
+- 支持 Client / Server / Both 侧别与会话握手；无热重载、无强制下发 DLL
 - TIMF.UI 为轻量即时模式，聚焦配置面板，未做复杂布局系统 / 皮肤
 - Harmony 仅用于框架菜单版本号；模组侧仍以 `OnPostDraw` 为主
 - 游戏大版本更新后需重新验证公共 API

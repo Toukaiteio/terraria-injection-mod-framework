@@ -6,6 +6,7 @@ using System.Reflection;
 using System.Text;
 using TIMF.Abstractions;
 using TIMF.Core.Localization;
+using TIMF.Core.Session;
 
 namespace TIMF.Core.Modding
 {
@@ -18,12 +19,20 @@ namespace TIMF.Core.Modding
         private readonly ServiceRegistry _services = new ServiceRegistry();
         private readonly List<IMod> _mods = new List<IMod>();
         private readonly List<ModDescriptor> _descriptors = new List<ModDescriptor>();
+        private readonly ServerModCatalog _serverCatalog = new ServerModCatalog();
+        private readonly HashSet<string> _activeServerIds =
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        private readonly ModEnablementStore _enablement;
         private LanguageService _language;
+        private bool _isDedicated;
+        private bool _serverWarningShown;
 
         public IReadOnlyList<IMod> Mods => _mods;
         public IServiceRegistry Services => _services;
         public IReadOnlyList<ModDescriptor> Descriptors => _descriptors;
         public LanguageService Language => _language;
+        public ServerModCatalog ServerCatalog => _serverCatalog;
+        public bool HasLocalServerSideMods => _serverCatalog.HasAny;
 
         public ModLoader(ILogger log, string home)
         {
@@ -34,18 +43,19 @@ namespace TIMF.Core.Modding
             Directory.CreateDirectory(_modsDir);
             Directory.CreateDirectory(_configDir);
 
-            // Language service is available before mods load so each ModContext can subscribe.
+            _enablement = new ModEnablementStore(_log, _configDir);
             _language = new LanguageService(_log);
             _services.Register<ILanguageService>(_language);
         }
 
         public void LoadAll()
         {
-            // Preferred layout: Mods/<ModId>/<ModId>.dll (+ assets). Legacy flat DLLs in
-            // Mods/ root are still discovered for backward compatibility.
-            var files = CollectModDlls();
+            try { _isDedicated = Terraria.Main.dedServ; }
+            catch { _isDedicated = false; }
 
-            _log.Info("Scanning mods in " + _modsDir + " (" + files.Count + " dll candidates)");
+            var files = CollectModDlls();
+            _log.Info("Scanning mods in " + _modsDir + " (" + files.Count + " dll candidates)"
+                      + (_isDedicated ? " [dedicated server]" : ""));
 
             foreach (var file in files)
             {
@@ -56,14 +66,8 @@ namespace TIMF.Core.Modding
                     continue;
                 }
 
-                try
-                {
-                    DiscoverOne(file);
-                }
-                catch (Exception ex)
-                {
-                    _log.Error("Failed to discover mod " + name, ex);
-                }
+                try { DiscoverOne(file); }
+                catch (Exception ex) { _log.Error("Failed to discover mod " + name, ex); }
             }
 
             var byId = new Dictionary<string, ModDescriptor>(StringComparer.OrdinalIgnoreCase);
@@ -77,7 +81,6 @@ namespace TIMF.Core.Modding
                     _log.Error(d.FailReason);
                     continue;
                 }
-
                 byId[d.Id] = d;
             }
 
@@ -150,26 +153,45 @@ namespace TIMF.Core.Modding
                     if (byId.TryGetValue(id.Trim(), out d) && d.FailReason == null)
                         d.FailReason = "Dependency cycle: " + cycle;
                 }
-
                 order = _descriptors.Where(d => d.FailReason == null).ToList();
             }
 
-            _log.Info("Load order (" + order.Count + "): " + string.Join(" -> ", order.Select(d => d.Id)));
+            _log.Info("Discovery order (" + order.Count + "): " + string.Join(" -> ", order.Select(FormatSide)));
 
             foreach (var d in order)
             {
                 if (d.FailReason != null)
                     continue;
-                try
+
+                d.UserEnabled = _enablement.IsEnabled(d.Id);
+                if (!d.UserEnabled)
                 {
-                    LoadOne(d);
+                    _log.Info("User-disabled mod (skipped): " + d.Id + " [" + d.Side + "]");
+                    continue;
                 }
+
+                if (d.Side == TimfSide.Server)
+                {
+                    _log.Info("Deferred server-only mod: " + d.Id + " v" + d.Version);
+                    continue;
+                }
+
+                if (_isDedicated && d.Side == TimfSide.Client)
+                {
+                    _log.Info("Skipping client-only mod on dedicated server: " + d.Id);
+                    continue;
+                }
+
+                try { LoadOne(d); }
                 catch (Exception ex)
                 {
                     d.FailReason = "Load threw: " + ex.Message;
                     _log.Error("Failed to load mod " + d.Id, ex);
                 }
             }
+
+            // Catalog only includes enabled Server/Both mods (disabled ones stay out of handshake).
+            _serverCatalog.Rebuild(_descriptors.Where(d => d.UserEnabled));
 
             var failed = _descriptors.Where(x => x.FailReason != null).ToList();
             if (failed.Count > 0)
@@ -181,34 +203,397 @@ namespace TIMF.Core.Modding
                 _log.Warn(sb.ToString().TrimEnd());
             }
 
-            // Publish the loaded-mod registry for hubs / settings UIs.
-            var registry = new ModRegistry();
-            foreach (var d in order)
+            RebuildRegistry();
+
+            _log.Info("Loaded " + _mods.Count + " client-path mod(s); "
+                      + _serverCatalog.Entries.Count + " server-capable; "
+                      + failed.Count + " failed/skipped");
+            if (_serverCatalog.HasAny)
+                _log.Info("Local server-side mods: " + string.Join(", ", _serverCatalog.Entries.Select(e => e.Id)));
+            else
+                _log.Info("No local server-side mods — TIMF handshake protocol will stay disabled");
+        }
+
+        public void ActivateServerMods(IEnumerable<string> ids)
+        {
+            if (ids == null)
+                return;
+
+            var idList = ids.Where(id => !string.IsNullOrWhiteSpace(id))
+                .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            if (idList.Count == 0)
+                return;
+
+            var byId = _descriptors
+                .Where(d => d.FailReason == null && !string.IsNullOrEmpty(d.Id))
+                .GroupBy(d => d.Id, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
+
+            var wanted = new List<ModDescriptor>();
+            foreach (var id in idList)
             {
-                if (d.Loaded && d.Instance != null)
-                    registry.Add(new ModInfo(d.Id, d.Instance.Name, d.Version, d.Instance));
+                ModDescriptor d;
+                if (!byId.TryGetValue(id, out d))
+                {
+                    _log.Warn("ActivateServerMods: unknown id " + id);
+                    continue;
+                }
+                if (!d.ParticipatesInServer)
+                {
+                    _log.Warn("ActivateServerMods: " + id + " is not Server/Both");
+                    continue;
+                }
+                wanted.Add(d);
             }
 
-            _services.Register<IModRegistry>(registry);
-            _log.Info("Registered IModRegistry with " + registry.Mods.Count + " mod(s)");
+            List<ModDescriptor> order;
+            string cycle;
+            if (!TryTopoSort(wanted, out order, out cycle))
+            {
+                _log.Error("ActivateServerMods: dependency cycle in enable set: " + cycle);
+                order = wanted;
+            }
 
-            _log.Info("Loaded " + _mods.Count + " mod(s); " + failed.Count + " failed/skipped");
+            var newlyActivated = 0;
+            foreach (var d in order)
+            {
+                if (_activeServerIds.Contains(d.Id))
+                    continue;
+
+                if (!d.UserEnabled)
+                {
+                    _log.Info("ActivateServerMods: skip user-disabled " + d.Id);
+                    continue;
+                }
+
+                try
+                {
+                    if (d.Side == TimfSide.Server)
+                    {
+                        if (!d.Loaded)
+                            LoadOne(d);
+                        d.ServerActive = true;
+                        _activeServerIds.Add(d.Id);
+                        newlyActivated++;
+
+                        var sm = d.Instance as IServerMod;
+                        if (sm != null && d.Context != null)
+                        {
+                            try { sm.OnServerActivate(d.Context); }
+                            catch (Exception ex) { _log.Error("OnServerActivate failed for " + d.Id, ex); }
+                        }
+                        _log.Info("Server mod activated (Load): " + d.Id);
+                    }
+                    else if (d.Side == TimfSide.Both)
+                    {
+                        if (!d.Loaded)
+                            LoadOne(d);
+
+                        d.ServerActive = true;
+                        _activeServerIds.Add(d.Id);
+                        newlyActivated++;
+
+                        var sm = d.Instance as IServerMod;
+                        if (sm != null && d.Context != null)
+                        {
+                            try { sm.OnServerActivate(d.Context); }
+                            catch (Exception ex) { _log.Error("OnServerActivate failed for " + d.Id, ex); }
+                        }
+                        else
+                        {
+                            _log.Debug("Both-side mod " + d.Id + " has no IServerMod; marked server-active only");
+                        }
+                        _log.Info("Server path activated (Both): " + d.Id);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _log.Error("Failed to activate server mod " + d.Id, ex);
+                }
+            }
+
+            if (newlyActivated > 0)
+                NotifyServerSideModsActive();
+
+            RebuildRegistry();
+        }
+
+        public void ActivateAllLocalServerMods()
+        {
+            ActivateServerMods(_serverCatalog.Entries.Select(e => e.Id));
+        }
+
+        public void DeactivateAllServerMods()
+        {
+            if (_activeServerIds.Count == 0)
+                return;
+
+            var active = _descriptors.Where(d => d.ServerActive).Reverse().ToList();
+            foreach (var d in active)
+            {
+                try
+                {
+                    DeactivateServerPath(d);
+                }
+                catch (Exception ex)
+                {
+                    _log.Error("Deactivate failed for " + d.Id, ex);
+                }
+            }
+
+            _activeServerIds.Clear();
+            _serverWarningShown = false;
+            RebuildRegistry();
+        }
+
+        public IReadOnlyList<ITimfRemoteModInfo> GetActiveServerModInfos()
+        {
+            var list = new List<ITimfRemoteModInfo>();
+            foreach (var d in _descriptors)
+            {
+                if (d.ServerActive)
+                    list.Add(new ServerModEntry(d.Id, d.Version, d.RequiredOnJoin));
+            }
+            return list;
         }
 
         /// <summary>
-        /// Collect candidate mod DLLs. Each subfolder of Mods/ is treated as one mod package:
-        /// only the DLL matching the folder name (or the single DLL present) is probed as an entry,
-        /// so bundled dependency DLLs don't get scanned as mods. Legacy: loose DLLs in Mods/ root.
+        /// Enable/disable a mod at runtime. Persists preference; may Load/Unload immediately.
+        /// Framework mods (TIMF.UI) cannot be disabled.
         /// </summary>
+        public bool TrySetModEnabled(string id, bool enabled, out string message)
+        {
+            message = null;
+            if (string.IsNullOrWhiteSpace(id))
+            {
+                message = "Empty mod id.";
+                return false;
+            }
+
+            var d = _descriptors.FirstOrDefault(x =>
+                string.Equals(x.Id, id, StringComparison.OrdinalIgnoreCase));
+            if (d == null)
+            {
+                message = "Mod not found: " + id;
+                return false;
+            }
+
+            if (IsFrameworkProtected(d.Id))
+            {
+                message = d.Id + " is a framework library mod and cannot be disabled.";
+                return false;
+            }
+
+            if (d.UserEnabled == enabled)
+            {
+                message = d.Id + " is already " + (enabled ? "enabled" : "disabled") + ".";
+                return true;
+            }
+
+            if (!enabled)
+            {
+                // Disabling: tear down server path then unload if loaded.
+                try
+                {
+                    if (d.ServerActive)
+                        DeactivateServerPath(d);
+                    if (d.Loaded && d.Instance != null)
+                        UnloadOne(d);
+                }
+                catch (Exception ex)
+                {
+                    _log.Error("Disable failed for " + d.Id, ex);
+                    message = "Failed to disable " + d.Id + ": " + ex.Message;
+                    return false;
+                }
+
+                d.UserEnabled = false;
+                _enablement.SetEnabled(d.Id, false);
+                _serverCatalog.Rebuild(_descriptors.Where(x => x.UserEnabled));
+                RebuildRegistry();
+                message = d.Id + " disabled. It will stay off until re-enabled (restart not required for client/server path).";
+                _log.Info(message);
+                return true;
+            }
+
+            // Enabling
+            d.UserEnabled = true;
+            _enablement.SetEnabled(d.Id, true);
+            _serverCatalog.Rebuild(_descriptors.Where(x => x.UserEnabled));
+
+            try
+            {
+                if (d.Side != TimfSide.Server)
+                {
+                    if (_isDedicated && d.Side == TimfSide.Client)
+                    {
+                        message = d.Id + " enabled, but client-only mods do not load on dedicated servers.";
+                    }
+                    else if (!d.Loaded)
+                    {
+                        LoadOne(d);
+                        message = d.Id + " enabled and loaded.";
+                    }
+                    else
+                    {
+                        message = d.Id + " enabled.";
+                    }
+                }
+                else
+                {
+                    message = d.Id + " enabled (server-only).";
+                }
+
+                // If we are already in a host-like session, activate server path now.
+                if (d.ParticipatesInServer && ShouldActivateServerNow())
+                {
+                    ActivateServerMods(new[] { d.Id });
+                    message += " Server path activated for current session.";
+                }
+                else if (d.Side == TimfSide.Server)
+                {
+                    message += " Activates in SP / host / dedicated / TIMF handshake.";
+                }
+            }
+            catch (Exception ex)
+            {
+                _log.Error("Enable/load failed for " + d.Id, ex);
+                message = "Enabled in config but load failed: " + ex.Message;
+                RebuildRegistry();
+                return false;
+            }
+
+            RebuildRegistry();
+            _log.Info(message);
+            return true;
+        }
+
+        private static bool ShouldActivateServerNow()
+        {
+            try
+            {
+                if (Terraria.Main.dedServ)
+                    return true;
+                // 0 = singleplayer, 2 = listen server / host
+                return Terraria.Main.netMode == 0 || Terraria.Main.netMode == 2;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private void DeactivateServerPath(ModDescriptor d)
+        {
+            if (d == null || !d.ServerActive)
+                return;
+
+            var sm = d.Instance as IServerMod;
+            if (sm != null)
+            {
+                try { sm.OnServerDeactivate(); }
+                catch (Exception ex) { _log.Error("OnServerDeactivate failed for " + d.Id, ex); }
+            }
+
+            if (d.Side == TimfSide.Server && d.Loaded && d.Instance != null)
+                UnloadOne(d);
+
+            d.ServerActive = false;
+            _activeServerIds.Remove(d.Id);
+            _log.Info("Server mod deactivated: " + d.Id);
+        }
+
+        private void UnloadOne(ModDescriptor d)
+        {
+            if (d == null || d.Instance == null)
+                return;
+
+            try { d.Instance.Unload(); }
+            catch (Exception ex) { _log.Error("Unload failed for " + d.Id, ex); }
+
+            _mods.Remove(d.Instance);
+            d.Instance = null;
+            d.Loaded = false;
+            d.Context = null;
+            d.ServerActive = false;
+            _activeServerIds.Remove(d.Id);
+            _log.Info("Unloaded mod " + d.Id);
+        }
+
+        private static bool IsFrameworkProtected(string id)
+        {
+            return string.Equals(id, "TIMF.UI", StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
+        /// Chat/log warning: server-side mods break pure-vanilla multiplayer expectations.
+        /// </summary>
+        public void NotifyServerSideModsActive()
+        {
+            if (_serverWarningShown)
+                return;
+            if (_activeServerIds.Count == 0)
+                return;
+
+            _serverWarningShown = true;
+            var names = string.Join(", ", _activeServerIds.OrderBy(x => x, StringComparer.OrdinalIgnoreCase));
+            var msg =
+                "TIMF server-side mods are active (" + names + "). "
+                + "Joining a pure vanilla server will not enable these mods. "
+                + "Hosting with RequiredOnJoin mods will reject pure vanilla clients. "
+                + "Disable server mods in Mod Settings (F9) if you need vanilla-compatible multiplayer.";
+
+            _log.Warn(msg);
+            try
+            {
+                if (Terraria.Main.dedServ)
+                    return;
+                var color = new Microsoft.Xna.Framework.Color(255, 180, 80);
+                try { Terraria.Main.NewTextMultiline(msg, false, color, 600); }
+                catch { Terraria.Main.NewText(msg, color); }
+            }
+            catch (Exception ex)
+            {
+                _log.Debug("NotifyServerSideModsActive UI failed: " + ex.Message);
+            }
+        }
+
+        private void RebuildRegistry()
+        {
+            var registry = new ModRegistry(this);
+            foreach (var d in _descriptors)
+            {
+                // List successfully discovered mods (enabled or not), including deferred Server-only.
+                if (string.IsNullOrEmpty(d.Id) || d.FailReason != null)
+                    continue;
+
+                var name = d.Instance != null ? d.Instance.Name : d.Id;
+                var ver = d.Instance != null ? (d.Instance.Version ?? d.Version) : d.Version;
+                registry.Add(new ModInfo(
+                    d.Id,
+                    name ?? d.Id,
+                    ver ?? "0.0.0",
+                    d.Side,
+                    d.UserEnabled,
+                    d.Loaded,
+                    d.ServerActive,
+                    d.Instance));
+            }
+            _services.Register<IModRegistry>(registry);
+            _log.Debug("IModRegistry updated: " + registry.Mods.Count + " mod(s)");
+        }
+
+        private static string FormatSide(ModDescriptor d)
+        {
+            return d.Id + "[" + d.Side + "]";
+        }
+
         private List<string> CollectModDlls()
         {
             var result = new List<string>();
-
-            // Legacy flat layout: DLLs directly in Mods/
             foreach (var f in Directory.GetFiles(_modsDir, "*.dll", SearchOption.TopDirectoryOnly))
                 result.Add(f);
 
-            // Preferred layout: one folder per mod.
             foreach (var dir in Directory.GetDirectories(_modsDir))
             {
                 var dlls = Directory.GetFiles(dir, "*.dll", SearchOption.TopDirectoryOnly);
@@ -216,8 +601,6 @@ namespace TIMF.Core.Modding
                     continue;
 
                 var folderName = Path.GetFileName(dir);
-                // Entry candidate: DLL named like the folder; else if exactly one DLL, use it;
-                // else probe all (FindModType will ignore non-IMod assemblies).
                 var match = dlls.FirstOrDefault(d =>
                     string.Equals(Path.GetFileNameWithoutExtension(d), folderName, StringComparison.OrdinalIgnoreCase));
 
@@ -229,9 +612,7 @@ namespace TIMF.Core.Modding
                     result.AddRange(dlls);
             }
 
-            return result
-                .OrderBy(f => f, StringComparer.OrdinalIgnoreCase)
-                .ToList();
+            return result.OrderBy(f => f, StringComparer.OrdinalIgnoreCase).ToList();
         }
 
         private static bool IsFrameworkFile(string name)
@@ -259,6 +640,8 @@ namespace TIMF.Core.Modding
             var hard = string.Join(", ", d.HardDepIds);
             var soft = string.Join(", ", d.SoftAfterIds);
             _log.Info("Discovered mod id=" + d.Id + " v" + d.Version
+                      + " side=" + d.Side
+                      + " requiredOnJoin=" + d.RequiredOnJoin
                       + " deps=[" + hard + "]"
                       + " after=[" + soft + "]"
                       + " file=" + Path.GetFileName(path));
@@ -266,6 +649,9 @@ namespace TIMF.Core.Modding
 
         private void LoadOne(ModDescriptor d)
         {
+            if (d.Loaded && d.Instance != null)
+                return;
+
             var mod = (IMod)Activator.CreateInstance(d.EntryType);
             d.Instance = mod;
 
@@ -284,11 +670,13 @@ namespace TIMF.Core.Modding
                 d.Id);
             var loc = new ModLocalization(modLog, modDir, _language);
             var ctx = new ModContext(modLog, _home, _configDir, modDir, d.Path, _services, loc);
+            d.Context = ctx;
 
-            _log.Info("Loading mod " + d.Id + " v" + d.Version + " from " + Path.GetFileName(d.Path));
+            _log.Info("Loading mod " + d.Id + " v" + d.Version + " side=" + d.Side + " from " + Path.GetFileName(d.Path));
             mod.Load(ctx);
             d.Loaded = true;
-            _mods.Add(mod);
+            if (!_mods.Contains(mod))
+                _mods.Add(mod);
             _log.Info("Mod ready: " + d.Id);
         }
 
@@ -326,14 +714,12 @@ namespace TIMF.Core.Modding
                     addEdge(dep.Id, d.Id);
             }
 
-            // Deterministic: SortedSet by id
             var ready = new List<string>();
             foreach (var kv in indegree)
             {
                 if (kv.Value == 0)
                     ready.Add(kv.Key);
             }
-
             ready.Sort(StringComparer.OrdinalIgnoreCase);
 
             while (ready.Count > 0)
@@ -358,11 +744,10 @@ namespace TIMF.Core.Modding
                 cycleDescription = string.Join(" -> ", left);
                 return false;
             }
-
             return true;
         }
 
-        private static bool VersionOk(string actual, string minRequired)
+        internal static bool VersionOk(string actual, string minRequired)
         {
             Version a, b;
             if (Version.TryParse(NormalizeVer(actual), out a) && Version.TryParse(NormalizeVer(minRequired), out b))
@@ -400,10 +785,7 @@ namespace TIMF.Core.Modding
 
         private static Type[] SafeGetTypes(Assembly asm)
         {
-            try
-            {
-                return asm.GetTypes();
-            }
+            try { return asm.GetTypes(); }
             catch (ReflectionTypeLoadException ex)
             {
                 return ex.Types.Where(t => t != null).ToArray();
@@ -419,19 +801,20 @@ namespace TIMF.Core.Modding
 
         public void UnloadAll()
         {
+            DeactivateAllServerMods();
             for (var i = _mods.Count - 1; i >= 0; i--)
             {
-                try
-                {
-                    _mods[i].Unload();
-                }
-                catch (Exception ex)
-                {
-                    _log.Error("Unload failed for " + _mods[i].Name, ex);
-                }
+                try { _mods[i].Unload(); }
+                catch (Exception ex) { _log.Error("Unload failed for " + _mods[i].Name, ex); }
             }
-
             _mods.Clear();
+            foreach (var d in _descriptors)
+            {
+                d.Loaded = false;
+                d.Instance = null;
+                d.Context = null;
+                d.ServerActive = false;
+            }
         }
     }
 }

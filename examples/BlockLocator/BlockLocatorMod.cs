@@ -14,7 +14,7 @@ namespace BlockLocator
     /// draws a BossCursor-style arrow pointing at it. Tile scan is bounded to a radius around
     /// the player and throttled. Toggle with the ] key.
     /// </summary>
-    [TimfMod(Id = "BlockLocator")]
+    [TimfMod(Id = "BlockLocator", Side = TimfSide.Client)]
     public sealed class BlockLocatorMod : IMod, IModSettings
     {
         private IModContext _ctx;
@@ -200,13 +200,15 @@ namespace BlockLocator
             var dir = delta / len;
             var angle = (float)Math.Atan2(dir.Y, dir.X);
 
-            var playerScreen = playerCenter - Main.screenPosition;
+            // Player's on-screen pixel pos (ZoomMatrix). Ring radius stays in screen pixels.
+            var playerScreen = WorldToScreenPixels(playerCenter);
             var ring = Math.Max(16f, _config.ArrowDistance);
             var drawPos = playerScreen + dir * ring;
 
             var scale = Math.Max(0.1f, _config.ArrowSize);
             var origin = new Vector2(_arrowTex.Width / 2f, _arrowTex.Height / 2f);
 
+            // True screen-pixel HUD overlay (Identity); anchor already transformed.
             sb.Begin(
                 SpriteSortMode.Deferred,
                 BlendState.AlphaBlend,
@@ -227,14 +229,32 @@ namespace BlockLocator
             }
         }
 
+        /// <summary>
+        /// World → final screen pixels via <see cref="Main.GameViewMatrix.ZoomMatrix"/>
+        /// (same transform as combat text / entity overlays when +/- zoom is active).
+        /// </summary>
+        private static Vector2 WorldToScreenPixels(Vector2 world)
+        {
+            var camera = world - Main.screenPosition;
+            try
+            {
+                if (Main.GameViewMatrix != null)
+                    return Vector2.Transform(camera, Main.GameViewMatrix.ZoomMatrix);
+            }
+            catch { /* fall through */ }
+
+            return camera;
+        }
+
         private static bool IsOnScreen(Vector2 world)
         {
+            // After zoom-in, less world is visible — test transformed screen pixels.
             var pad = 24f;
-            var left = Main.screenPosition.X - pad;
-            var top = Main.screenPosition.Y - pad;
-            var right = Main.screenPosition.X + Main.screenWidth + pad;
-            var bottom = Main.screenPosition.Y + Main.screenHeight + pad;
-            return world.X >= left && world.X <= right && world.Y >= top && world.Y <= bottom;
+            var s = WorldToScreenPixels(world);
+            return s.X >= -pad
+                && s.Y >= -pad
+                && s.X <= Main.screenWidth + pad
+                && s.Y <= Main.screenHeight + pad;
         }
 
         private void EnsureTexture()

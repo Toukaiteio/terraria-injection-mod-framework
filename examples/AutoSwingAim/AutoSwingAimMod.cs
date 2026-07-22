@@ -23,7 +23,7 @@ namespace AutoSwingAim
     /// melee style, face the mouse (ChangeDir). Optionally treat the held item as useTurn for
     /// A/D mid-swing turns without permanently rewriting item defaults.
     /// </summary>
-    [TimfMod(Id = "AutoSwingAim")]
+    [TimfMod(Id = "AutoSwingAim", Side = TimfSide.Client)]
     public sealed class AutoSwingAimMod : IMod, IModSettings, IPlayerUpdateHook
     {
         private IModContext _ctx;

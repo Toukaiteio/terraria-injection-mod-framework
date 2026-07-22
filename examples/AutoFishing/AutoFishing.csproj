@@ -10,4 +10,18 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\TIMF.Abstractions\TIMF.Abstractions.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <Reference Include="Terraria">
+      <HintPath>$(TimfTerrariaRef)</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Microsoft.Xna.Framework">
+      <HintPath>$(TimfXnaDir)\Microsoft.Xna.Framework.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Microsoft.Xna.Framework.Game">
+      <HintPath>$(TimfXnaDir)\Microsoft.Xna.Framework.Game.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
 </Project>

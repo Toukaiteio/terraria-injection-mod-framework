@@ -7,7 +7,7 @@ namespace TIMF.UI
     /// Library mod: registers immediate-mode UI services for other mods.
     /// Id: TIMF.UI — depend with [TimfDependsOn("TIMF.UI")].
     /// </summary>
-    [TimfMod(Id = "TIMF.UI")]
+    [TimfMod(Id = "TIMF.UI", Side = TimfSide.Client)]
     public sealed class TimfUiMod : IMod
     {
         private IModContext _ctx;

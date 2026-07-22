@@ -18,7 +18,7 @@ namespace AutoFishing
     ///
     /// Toggle with the \ key.
     /// </summary>
-    [TimfMod(Id = "AutoFishing")]
+    [TimfMod(Id = "AutoFishing", Side = TimfSide.Client)]
     public sealed class AutoFishingMod : IMod, IModSettings, IPlayerUpdateHook
     {
         private IModContext _ctx;

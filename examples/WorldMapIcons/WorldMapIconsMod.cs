@@ -14,7 +14,7 @@ namespace WorldMapIcons
     /// Draws via the framework map-overlay hook (Harmony postfix on MapIconOverlay.Draw), so
     /// icons share the exact transform / SpriteBatch the game uses for its own map icons.
     /// </summary>
-    [TimfMod(Id = "WorldMapIcons")]
+    [TimfMod(Id = "WorldMapIcons", Side = TimfSide.Client)]
     public sealed class WorldMapIconsMod : IMod, IModSettings, IMapOverlayHook
     {
         private IModContext _ctx;

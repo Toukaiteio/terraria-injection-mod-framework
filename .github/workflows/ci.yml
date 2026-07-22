@@ -1,0 +1,380 @@
+name: CI
+
+# Build (Windows x86) on every PR / push; publish a GitHub Release when a v* tag is pushed.
+#
+# Full Core / UI / examples needs a Terraria.exe *compile reference* (not redistributed):
+#   repo secret TERRARIA_REF_URL  (+ optional TERRARIA_REF_TOKEN)
+#   or a self-hosted runner with lib/Terraria.exe
+# Without it, CI still builds Launcher + Abstractions + Bootstrap (smoke). Tag releases require full build.
+
+on:
+  push:
+    branches: [master, main]
+    tags: ["v*"]
+  pull_request:
+    branches: [master, main]
+  workflow_dispatch:
+    inputs:
+      force_partial:
+        description: "Smoke only — ignore TERRARIA_REF_URL even if configured"
+        type: boolean
+        default: false
+      include_examples:
+        description: "Build example mods into dist (requires Terraria ref)"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  # Do not cancel tag builds mid-release; cancel superseding PR/branch pushes.
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+jobs:
+  build:
+    name: Build (Windows x86)
+    runs-on: windows-latest
+    timeout-minutes: 45
+    outputs:
+      full_build: ${{ steps.meta.outputs.full_build }}
+      artifact_name: ${{ steps.meta.outputs.artifact_name }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          # Targets net48; Windows runner provides the .NET Framework targeting pack.
+          dotnet-version: "8.0.x"
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj', '**/Directory.Build.props', '**/packages.lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-nuget-
+
+      - name: Setup MSYS2 (i686 MinGW for Bootstrap)
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW32
+          update: true
+          install: mingw-w64-i686-gcc
+          path-type: minimal
+
+      - name: Add mingw32 g++ to PATH
+        shell: pwsh
+        run: |
+          $bin = "C:\msys64\mingw32\bin"
+          if (-not (Test-Path (Join-Path $bin "g++.exe"))) {
+            throw "mingw32 g++ not found at $bin"
+          }
+          Add-Content -Path $env:GITHUB_PATH -Value $bin
+          & (Join-Path $bin "g++.exe") -dumpmachine
+          & (Join-Path $bin "g++.exe") --version | Select-Object -First 1
+
+      - name: Verify XNA reference DLLs
+        shell: pwsh
+        run: |
+          $need = @(
+            "lib\xna\Microsoft.Xna.Framework.dll",
+            "lib\xna\Microsoft.Xna.Framework.Game.dll",
+            "lib\xna\Microsoft.Xna.Framework.Graphics.dll"
+          )
+          foreach ($p in $need) {
+            if (-not (Test-Path $p)) { throw "Missing vendored XNA ref: $p" }
+            Write-Host "OK $p ($((Get-Item $p).Length) bytes)"
+          }
+
+      - name: Resolve Terraria compile reference (optional)
+        id: terraria
+        shell: pwsh
+        env:
+          # Optional: HTTPS URL to a *private* Terraria.exe you host yourself (compile ref only).
+          # Do NOT commit the game binary. GitHub Secrets max ~64KB so base64 of the exe is impossible.
+          TERRARIA_REF_URL: ${{ secrets.TERRARIA_REF_URL }}
+          TERRARIA_REF_TOKEN: ${{ secrets.TERRARIA_REF_TOKEN }}
+          FORCE_PARTIAL: ${{ github.event_name == 'workflow_dispatch' && inputs.force_partial == true }}
+        run: |
+          $out = Join-Path $env:GITHUB_WORKSPACE "lib\Terraria.exe"
+          New-Item -ItemType Directory -Force -Path (Split-Path $out) | Out-Null
+
+          $forcePartial = ($env:FORCE_PARTIAL -eq "true")
+          if ($forcePartial) {
+            Write-Host "force_partial=true — skipping Terraria ref (smoke build)"
+            "has_terraria=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+            return
+          }
+
+          if (-not [string]::IsNullOrWhiteSpace($env:TERRARIA_REF_URL)) {
+            Write-Host "Downloading Terraria compile reference from TERRARIA_REF_URL"
+            $headers = @{}
+            if (-not [string]::IsNullOrWhiteSpace($env:TERRARIA_REF_TOKEN)) {
+              $headers["Authorization"] = "Bearer $($env:TERRARIA_REF_TOKEN)"
+            }
+            Invoke-WebRequest -Uri $env:TERRARIA_REF_URL -OutFile $out -Headers $headers -UseBasicParsing
+            if (-not (Test-Path $out) -or (Get-Item $out).Length -lt 1MB) {
+              throw "Downloaded Terraria.exe looks invalid"
+            }
+            Write-Host "Terraria.exe ready ($((Get-Item $out).Length) bytes)"
+            "has_terraria=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+            "TIMF_TERRARIA=$out" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          } elseif (Test-Path $out) {
+            # Self-hosted runners may already have lib/Terraria.exe provisioned.
+            Write-Host "Using existing lib\Terraria.exe ($((Get-Item $out).Length) bytes)"
+            "has_terraria=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+            "TIMF_TERRARIA=$out" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          } else {
+            Write-Host "No Terraria reference available."
+            Write-Host "Full Core/UI/examples CI needs either:"
+            Write-Host "  - secret TERRARIA_REF_URL (+ optional TERRARIA_REF_TOKEN), or"
+            Write-Host "  - a self-hosted runner with lib\Terraria.exe present."
+            Write-Host "Falling back to Launcher + Abstractions + Bootstrap."
+            "has_terraria=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          }
+
+      - name: Build framework (full)
+        if: steps.terraria.outputs.has_terraria == 'true'
+        shell: pwsh
+        run: |
+          ./build.ps1 Release
+          if (-not (Test-Path "dist\TIMF.Bootstrap.dll")) { throw "Bootstrap missing from dist" }
+          if (-not (Test-Path "dist\TIMF.Core.dll")) { throw "Core missing from dist" }
+          if (-not (Test-Path "dist\TIMF.Launcher.exe")) { throw "Launcher missing from dist" }
+          if (-not (Test-Path "dist\TIMF.Abstractions.dll")) { throw "Abstractions missing from dist" }
+          if (-not (Test-Path "dist\Mods\TIMF.UI\TIMF.UI.dll")) { throw "TIMF.UI missing from dist" }
+          if (-not (Test-Path "dist\0Harmony.dll")) {
+            Write-Warning "0Harmony.dll not found next to Core — Harmony may be missing from package"
+          }
+
+      - name: Build example mods
+        if: steps.terraria.outputs.has_terraria == 'true' && (github.event_name != 'workflow_dispatch' || inputs.include_examples)
+        shell: pwsh
+        run: |
+          ./build-examples.ps1 Release
+          $mods = Get-ChildItem dist\Mods -Directory -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -ne "TIMF.UI" }
+          if ($null -eq $mods -or $mods.Count -lt 1) { throw "No example mods deployed" }
+          Write-Host "Deployed example mods ($($mods.Count)):"
+          $mods | ForEach-Object { Write-Host " - $($_.Name)" }
+
+      - name: Build Launcher + Abstractions + Bootstrap (no Terraria)
+        if: steps.terraria.outputs.has_terraria != 'true'
+        shell: pwsh
+        run: |
+          Write-Host "==> TIMF.Launcher"
+          dotnet build src/TIMF.Launcher/TIMF.Launcher.csproj -c Release --nologo
+          if ($LASTEXITCODE -ne 0) { throw "Launcher build failed" }
+
+          Write-Host "==> TIMF.Abstractions"
+          dotnet build src/TIMF.Abstractions/TIMF.Abstractions.csproj -c Release --nologo
+          if ($LASTEXITCODE -ne 0) { throw "Abstractions build failed" }
+
+          Write-Host "==> Bootstrap (i686 g++)"
+          $gpp = (Get-Command g++.exe -ErrorAction Stop).Source
+          $machine = (& $gpp -dumpmachine | Out-String).Trim()
+          if ($machine -notmatch 'i686|i386|mingw32') {
+            throw "g++ is not i686 ($machine). Check MinGW install step."
+          }
+          New-Item -ItemType Directory -Force -Path dist, dist\Mods, dist\config, dist\logs | Out-Null
+          # -static folds in winpthread; -static-libgcc alone still imports libwinpthread-1.dll.
+          & $gpp -shared -m32 -O2 -static `
+            src\TIMF.Bootstrap\bootstrap.cpp `
+            -o dist\TIMF.Bootstrap.dll `
+            -lole32 -loleaut32 -luuid "-Wl,--kill-at"
+          if ($LASTEXITCODE -ne 0) { throw "Bootstrap g++ build failed" }
+
+          Copy-Item src\TIMF.Launcher\bin\Release\net48\TIMF.Launcher.exe dist\ -Force
+          Copy-Item src\TIMF.Abstractions\bin\Release\net48\TIMF.Abstractions.dll dist\ -Force
+          Write-Host "Partial dist ready. Configure TERRARIA_REF_URL for full CI / tag releases."
+
+      - name: Package dist + manifest
+        id: package
+        shell: pwsh
+        run: |
+          if (-not (Test-Path dist)) { throw "dist/ missing" }
+
+          # Never ship game binaries if they leaked into dist
+          Get-ChildItem dist -Recurse -Filter Terraria.exe -ErrorAction SilentlyContinue |
+            Remove-Item -Force -ErrorAction SilentlyContinue
+          Get-ChildItem dist -Recurse -Filter TerrariaServer.exe -ErrorAction SilentlyContinue |
+            Remove-Item -Force -ErrorAction SilentlyContinue
+
+          # Drop local runtime junk from developer machines if present
+          @('logs', 'dist.zip', 'TIMF_HOME.txt') | ForEach-Object {
+            $p = Join-Path dist $_
+            if (Test-Path $p) { Remove-Item $p -Recurse -Force }
+          }
+
+          $full = Test-Path "dist\TIMF.Core.dll"
+          $kind = if ($full) { "full" } else { "partial" }
+
+          $files = Get-ChildItem dist -Recurse -File | Sort-Object FullName
+          $manifest = Join-Path dist "BUILD_MANIFEST.txt"
+          $lines = @(
+            "TIMF build manifest",
+            "kind=$kind",
+            "sha=${{ github.sha }}",
+            "ref=${{ github.ref }}",
+            "run=${{ github.run_id }}",
+            "actor=${{ github.actor }}",
+            "built_utc=$((Get-Date).ToUniversalTime().ToString('o'))",
+            "",
+            "files:"
+          )
+          $root = (Resolve-Path dist).Path
+          foreach ($f in $files) {
+            $rel = $f.FullName.Substring($root.Length + 1)
+            $hash = (Get-FileHash -Algorithm SHA256 -Path $f.FullName).Hash
+            $lines += ("  {0}  {1}  {2}" -f $f.Length, $hash, $rel)
+          }
+          $lines | Set-Content -Path $manifest -Encoding utf8
+
+          $count = $files.Count + 1
+          Write-Host "dist kind=$kind file_count≈$count"
+          Get-Content $manifest
+
+          "kind=$kind" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "file_count=$count" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+          # Fail tag builds early if package is incomplete (release job also checks).
+          if ("${{ github.ref }}" -like "refs/tags/v*" -and -not $full) {
+            throw "Tag build produced a partial package (no TIMF.Core.dll). Configure TERRARIA_REF_URL before cutting a release."
+          }
+
+      - name: Job summary
+        if: always()
+        shell: pwsh
+        run: |
+          $kind = "${{ steps.package.outputs.kind }}"
+          if ([string]::IsNullOrWhiteSpace($kind)) { $kind = "unknown" }
+          $hasT = "${{ steps.terraria.outputs.has_terraria }}"
+          @"
+          ## TIMF CI
+
+          | Field | Value |
+          |-------|-------|
+          | Kind | ``$kind`` |
+          | Terraria ref | ``$hasT`` |
+          | Ref | ``${{ github.ref }}`` |
+          | SHA | ``${{ github.sha }}`` |
+          | Runner | ``${{ runner.os }}`` |
+
+          - Full package needs ``TERRARIA_REF_URL`` (or self-hosted ``lib/Terraria.exe``).
+          - Tag releases (``v*``) **require** a full package.
+          "@ | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
+
+      - name: Set artifact metadata
+        id: meta
+        shell: pwsh
+        run: |
+          $full = if ("${{ steps.package.outputs.kind }}" -eq "full") { "true" } else { "false" }
+          $short = "${{ github.sha }}".Substring(0, 7)
+          $name = "timf-dist-$short"
+          if ($full -ne "true") { $name = "$name-partial" }
+          "full_build=$full" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "artifact_name=$name" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          Write-Host "artifact_name=$name full_build=$full"
+
+      - name: Upload dist
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.meta.outputs.artifact_name }}
+          path: dist/**
+          if-no-files-found: error
+          # PRs: shorter retention; main/tags: keep longer for release debugging
+          retention-days: ${{ github.event_name == 'pull_request' && 7 || 30 }}
+
+  release:
+    name: GitHub Release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Require full build
+        shell: pwsh
+        run: |
+          if ("${{ needs.build.outputs.full_build }}" -ne "true") {
+            throw @"
+          Cannot publish release ${{ github.ref_name }}: build was partial (no TIMF.Core).
+          Set repository secret TERRARIA_REF_URL to a private Terraria.exe compile reference, re-run the tag workflow, or delete and re-push the tag after configuring the secret.
+          "@
+          }
+          Write-Host "Full build confirmed — packaging release ${{ github.ref_name }}"
+
+      - name: Download dist artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ needs.build.outputs.artifact_name }}
+          path: dist
+
+      - name: Verify release package
+        shell: pwsh
+        run: |
+          $required = @(
+            "dist\TIMF.Launcher.exe",
+            "dist\TIMF.Bootstrap.dll",
+            "dist\TIMF.Core.dll",
+            "dist\TIMF.Abstractions.dll",
+            "dist\Mods\TIMF.UI\TIMF.UI.dll"
+          )
+          foreach ($p in $required) {
+            if (-not (Test-Path $p)) { throw "Release package missing: $p" }
+            Write-Host "OK $p ($((Get-Item $p).Length) bytes)"
+          }
+          if (Test-Path "dist\Terraria.exe") { throw "Terraria.exe must not be in release package" }
+          if (Test-Path "dist\TerrariaServer.exe") { throw "TerrariaServer.exe must not be in release package" }
+
+      - name: Zip package + checksums
+        shell: pwsh
+        run: |
+          $tag = $env:GITHUB_REF_NAME
+          $zip = "TIMF-$tag-win-x86.zip"
+          if (Test-Path $zip) { Remove-Item $zip -Force }
+          Compress-Archive -Path "dist\*" -DestinationPath $zip -Force
+          $zipItem = Get-Item $zip
+          Write-Host "Created $zip ($($zipItem.Length) bytes)"
+
+          $sha = (Get-FileHash -Algorithm SHA256 -Path $zip).Hash
+          $sum = "$zip.sha256"
+          # sha256sum-compatible: "<hash>  <filename>"
+          "$sha  $zip" | Set-Content -Path $sum -Encoding ascii -NoNewline
+          Write-Host "SHA256: $sha"
+
+          "ZIP_NAME=$zip" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "SUM_NAME=$sum" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            ${{ env.ZIP_NAME }}
+            ${{ env.SUM_NAME }}
+          # Auto changelog from commits since previous tag (do not also set body —
+          # softprops treats a non-empty body as the full release notes).
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          # Pre-release if tag contains -rc / -beta / -alpha / -preview
+          prerelease: ${{ contains(github.ref_name, '-rc') || contains(github.ref_name, '-beta') || contains(github.ref_name, '-alpha') || contains(github.ref_name, '-preview') }}
+          name: TIMF ${{ github.ref_name }}
+          draft: false
+
+      - name: Release summary
+        shell: pwsh
+        run: |
+          @"
+          ## Release ${{ github.ref_name }}
+
+          - Asset: ``${{ env.ZIP_NAME }}``
+          - Checksum: ``${{ env.SUM_NAME }}``
+          - Artifact: ``${{ needs.build.outputs.artifact_name }}``
+          - Install: unpack zip, run ``TIMF.Launcher.exe`` next to a legal Terraria 1.4.5.x install
+          - Verify: ``Get-FileHash ${{ env.ZIP_NAME }} -Algorithm SHA256`` vs ``${{ env.SUM_NAME }}``
+          "@ | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8

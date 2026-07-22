@@ -2,7 +2,6 @@ bin/
 obj/
 dist/
 _decomp/
-lib/*.dll
 *.user
 *.suo
 .vs/
@@ -11,6 +10,16 @@ src/TIMF.Bootstrap/build/
 *.log
 TIMF_HOME.txt
 .claude/
+
+# Game binary used as a compile-time reference only — never commit.
+# Prefer env TIMF_TERRARIA, or drop a copy at lib/Terraria.exe for local/CI.
+lib/Terraria.exe
+lib/*.exe
+
+# Other optional local-only game libs (keep vendored XNA under lib/xna/ tracked).
+lib/*.dll
+!lib/xna/
+!lib/xna/**
 
 # Actual runnable mods — built/deployed from here, not tracked by the framework repo.
 # (examples/ keeps reference copies that ARE tracked but are not built or deployed.)

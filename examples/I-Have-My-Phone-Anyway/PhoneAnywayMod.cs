@@ -15,7 +15,7 @@ namespace IHaveMyPhoneAnyway
     /// IInfoAccessoryHook (postfixes on Player.UpdateEquips every frame and
     /// Player.RefreshInfoAccs when inventory is open), after the game recomputes them.
     /// </summary>
-    [TimfMod(Id = "I-Have-My-Phone-Anyway")]
+    [TimfMod(Id = "I-Have-My-Phone-Anyway", Side = TimfSide.Client)]
     public sealed class PhoneAnywayMod : IMod, IModSettings, IInfoAccessoryHook
     {
         private IModContext _ctx;

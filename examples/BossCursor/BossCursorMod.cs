@@ -12,7 +12,7 @@ namespace BossCursor
     /// Independent sample mod: arrows around the local player pointing at active bosses.
     /// Behavior inspired by the classic Boss Cursor client mod (not a source port).
     /// </summary>
-    [TimfMod(Id = "BossCursor")]
+    [TimfMod(Id = "BossCursor", Side = TimfSide.Client)]
     public sealed class BossCursorMod : IMod, IModSettings
     {
         // NPCID.LunarTower* (1.4.5.6)
@@ -142,7 +142,8 @@ namespace BossCursor
                 var playerCenter = player.Center;
                 var sb = Main.spriteBatch;
 
-                // UI / screen space overlay. OnPostDraw is after the game frame; begin a clean batch.
+                // True screen-pixel HUD overlay (Identity). Player anchor goes through ZoomMatrix
+                // so the ring stays locked to the rendered player when +/- zoom is active.
                 sb.Begin(
                     SpriteSortMode.Deferred,
                     BlendState.AlphaBlend,
@@ -196,8 +197,8 @@ namespace BossCursor
             var dir = delta / dist;
             var angle = (float)Math.Atan2(dir.Y, dir.X);
 
-            // Screen-space player position (ignore world zoom for a stable HUD ring).
-            var playerScreen = playerCenter - Main.screenPosition;
+            // Player's on-screen pixel pos (ZoomMatrix). Ring radius stays in screen pixels.
+            var playerScreen = WorldToScreenPixels(playerCenter);
             var ring = Math.Max(16f, _config.CursorDistance);
             var drawPos = playerScreen + dir * ring;
 
@@ -225,15 +226,32 @@ namespace BossCursor
                 0f);
         }
 
+        /// <summary>
+        /// World → final screen pixels via <see cref="Main.GameViewMatrix.ZoomMatrix"/>
+        /// (same transform as combat text / entity overlays when +/- zoom is active).
+        /// </summary>
+        private static Vector2 WorldToScreenPixels(Vector2 world)
+        {
+            var camera = world - Main.screenPosition;
+            try
+            {
+                if (Main.GameViewMatrix != null)
+                    return Vector2.Transform(camera, Main.GameViewMatrix.ZoomMatrix);
+            }
+            catch { /* fall through */ }
+
+            return camera;
+        }
+
         private static bool IsOnScreen(NPC npc)
         {
+            // After zoom-in, less world is visible — test transformed screen pixels, not raw frustum.
             var pad = 32f;
-            var left = Main.screenPosition.X - pad;
-            var top = Main.screenPosition.Y - pad;
-            var right = Main.screenPosition.X + Main.screenWidth + pad;
-            var bottom = Main.screenPosition.Y + Main.screenHeight + pad;
-            var c = npc.Center;
-            return c.X >= left && c.X <= right && c.Y >= top && c.Y <= bottom;
+            var s = WorldToScreenPixels(npc.Center);
+            return s.X >= -pad
+                && s.Y >= -pad
+                && s.X <= Main.screenWidth + pad
+                && s.Y <= Main.screenHeight + pad;
         }
 
         private static bool IsPillar(int type)

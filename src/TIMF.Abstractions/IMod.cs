@@ -3,7 +3,7 @@ using Microsoft.Xna.Framework;
 namespace TIMF.Abstractions
 {
     /// <summary>
-    /// Client-side TIMF mod entry point. Implement this on a public class in your mod DLL.
+    /// TIMF mod entry point. Implement this on a public class in your mod DLL. Use [TimfMod(Side=...)] for Client/Server/Both.
     /// </summary>
     public interface IMod
     {

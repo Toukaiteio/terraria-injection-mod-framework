@@ -7,6 +7,7 @@ using Terraria;
 using TIMF.Abstractions;
 using TIMF.Core.Keybinds;
 using TIMF.Core.Modding;
+using TIMF.Core.Session;
 using TIMF.Core.UI;
 
 namespace TIMF.Core.Hooks
@@ -148,6 +149,7 @@ namespace TIMF.Core.Hooks
         private readonly MapOverlayHookRegistry _mapOverlay;
         private readonly InfoAccessoryHookRegistry _infoAcc;
         private readonly KeybindService _keybinds;
+        private SessionService _session;
         private Harmony _harmony;
         private bool _installed;
         private bool _versionPatchInstalled;
@@ -163,6 +165,7 @@ namespace TIMF.Core.Hooks
             _mapOverlay = new MapOverlayHookRegistry(log);
             _infoAcc = new InfoAccessoryHookRegistry(log);
             _keybinds = new KeybindService(log);
+            _session = new SessionService(log, mods);
         }
 
         public void RegisterServices()
@@ -173,6 +176,7 @@ namespace TIMF.Core.Hooks
                 _mods.Services.Register<IMapOverlayHookRegistry>(_mapOverlay);
                 _mods.Services.Register<IInfoAccessoryHookRegistry>(_infoAcc);
                 _mods.Services.Register<IKeybindService>(_keybinds);
+                _mods.Services.Register<ITimfSession>(_session);
                 KeybindUiPatches.SetService(_keybinds, _log);
             }
             catch (Exception ex)
@@ -217,12 +221,23 @@ namespace TIMF.Core.Hooks
             Main.OnPostDraw += _postDrawHandler;
             _installed = true;
             _log.Info("Subscribed to Main.OnPostDraw");
+
+            try
+            {
+                _session?.Start();
+            }
+            catch (Exception ex)
+            {
+                _log.Error("SessionService.Start failed", ex);
+            }
         }
 
         public void Uninstall()
         {
             if (!_installed)
                 return;
+
+            try { _session?.Stop(); } catch { /* ignore */ }
 
             try
             {
@@ -274,6 +289,10 @@ namespace TIMF.Core.Hooks
         {
             try
             {
+                // Always tick session (handshake / SP activate), including dedicated server.
+                try { _session?.Poll(); }
+                catch (Exception ex) { _log.Error("SessionService.Poll failed", ex); }
+
                 if (Main.dedServ)
                     return;
 

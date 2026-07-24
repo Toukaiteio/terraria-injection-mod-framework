@@ -9,7 +9,7 @@ namespace TIMF.Abstractions
         string Name { get; }
         string Version { get; }
 
-        /// <summary>Declared side (Client / Server / Both).</summary>
+        /// <summary>Declared side (Client / Server / Both / Plugin).</summary>
         TimfSide Side { get; }
 
         /// <summary>

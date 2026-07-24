@@ -14,7 +14,7 @@ namespace CreativeMode
     /// </summary>
     [TimfMod(Id = "CreativeMode", Side = TimfSide.Client)]
     [TimfDependsOn("TIMF.UI", MinVersion = "1.0.0")]
-    public sealed class CreativeModeMod : IMod, IModSettings
+    public sealed class CreativeModeMod : IClientMod, IModSettings
     {
         // Classic coin item types.
         private const int CopperCoin = 71;
@@ -46,10 +46,12 @@ namespace CreativeMode
             _ctx = context;
             _db = new ItemDatabase(context.Log);
 
-            if (!context.Services.TryGetService(out _ui) || _ui == null)
-                context.Log.Error("IImmediateModeUi not available — TIMF.UI missing?");
+            _ui = context.Client != null ? context.Client.Ui : null;
+            if (_ui == null)
+                context.Log.Error("IClientServices.Ui unavailable — TIMF.UI missing?");
 
-            if (context.Services.TryGetService(out _keybinds) && _keybinds != null)
+            _keybinds = context.Client != null ? context.Client.Keybinds : null;
+            if (_keybinds != null)
                 _toggle = _keybinds.Register(ToggleId, context.L.Get("Keybind.Toggle", "Creative Mode Toggle"), Keys.F6);
             else
                 context.Log.Error("IKeybindService unavailable — CreativeMode toggle will not work");

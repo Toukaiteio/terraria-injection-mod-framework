@@ -13,7 +13,7 @@ namespace LowHealthWarning
     /// Only paints a thin fading border — center FOV stays clear.
     /// </summary>
     [TimfMod(Id = "LowHealthWarning", Side = TimfSide.Client)]
-    public sealed class LowHealthWarningMod : IMod, IModSettings
+    public sealed class LowHealthWarningMod : IClientMod, IModSettings
     {
         private const string ToggleId = "LowHealthWarning.Toggle";
         private IModContext _ctx;
@@ -35,7 +35,8 @@ namespace LowHealthWarning
             _config = LowHealthWarningConfig.LoadOrCreate(cfgPath);
             _enabled = _config.Enabled;
             var defaultKey = ParseKey(_config.ToggleKey, Keys.Home);
-            if (context.Services.TryGetService(out _keybinds) && _keybinds != null)
+            _keybinds = context.Client != null ? context.Client.Keybinds : null;
+            if (_keybinds != null)
                 _toggle = _keybinds.Register(ToggleId, context.L.Get("Keybind.Toggle", "Low Health Warning Toggle"), defaultKey);
             else
                 context.Log.Error("IKeybindService unavailable — LowHealthWarning toggle will not work");

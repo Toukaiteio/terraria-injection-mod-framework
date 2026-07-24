@@ -16,7 +16,7 @@ namespace AutoAim
     /// CopyInto, so controlUseItem is not overwritten by the real mouse that frame).
     /// </summary>
     [TimfMod(Id = "AutoAim", Side = TimfSide.Client)]
-    public sealed class AutoAimMod : IMod, IModSettings, IPlayerUpdateHook
+    public sealed class AutoAimMod : IClientMod, IModSettings, IPlayerUpdateHook
     {
         private IModContext _ctx;
         private AutoAimConfig _config;
@@ -41,15 +41,19 @@ namespace AutoAim
             var defaultKey = ParseKey(_config.ToggleKey, Keys.OemTilde);
             _los = new LineOfSight(context.Log);
 
-            if (context.Services.TryGetService(out _keybinds) && _keybinds != null)
+            _keybinds = context.Client != null ? context.Client.Keybinds : null;
+            if (_keybinds != null)
                 _toggle = _keybinds.Register(ToggleId, context.L.Get("Keybind.Toggle", "Auto Aim Toggle"), defaultKey);
             else
                 context.Log.Error("IKeybindService unavailable — AutoAim toggle will not work");
 
-            if (context.Services.TryGetService(out _hookRegistry) && _hookRegistry != null)
+            if (context.Client != null && context.Client.PlayerUpdate != null)
+            {
+                _hookRegistry = context.Client.PlayerUpdate;
                 _hookRegistry.Add(this);
+            }
             else
-                context.Log.Error("IPlayerUpdateHookRegistry unavailable — auto attack will not fire");
+                context.Log.Error("IClientServices.PlayerUpdate unavailable — feature will not run");
 
             context.Log.Info("AutoAim loaded. Toggle=" + ToggleId + " default=" + defaultKey + " enabled=" + _config.Enabled + " autoClick=" + _config.AutoClick);
         }

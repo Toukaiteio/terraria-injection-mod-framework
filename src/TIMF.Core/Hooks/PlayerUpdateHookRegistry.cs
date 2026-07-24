@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Terraria;
 using TIMF.Abstractions;
 
 namespace TIMF.Core.Hooks
@@ -23,11 +24,22 @@ namespace TIMF.Core.Hooks
         {
             if (hook == null)
                 return;
+            if (IsDedicatedServer())
+            {
+                _log.Error("IPlayerUpdateHook.Add rejected: client hook cannot register on dedicated server");
+                return;
+            }
             lock (_lock)
             {
                 if (!_hooks.Contains(hook))
                     _hooks.Add(hook);
             }
+        }
+
+        private static bool IsDedicatedServer()
+        {
+            try { return Main.dedServ; }
+            catch { return false; }
         }
 
         public void Remove(IPlayerUpdateHook hook)

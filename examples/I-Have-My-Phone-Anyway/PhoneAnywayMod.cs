@@ -16,7 +16,7 @@ namespace IHaveMyPhoneAnyway
     /// Player.RefreshInfoAccs when inventory is open), after the game recomputes them.
     /// </summary>
     [TimfMod(Id = "I-Have-My-Phone-Anyway", Side = TimfSide.Client)]
-    public sealed class PhoneAnywayMod : IMod, IModSettings, IInfoAccessoryHook
+    public sealed class PhoneAnywayMod : IClientMod, IModSettings, IInfoAccessoryHook
     {
         private IModContext _ctx;
         private PhoneConfig _config;
@@ -31,10 +31,13 @@ namespace IHaveMyPhoneAnyway
             var cfgPath = Path.Combine(context.ConfigDirectory, "IHaveMyPhoneAnyway.json");
             _config = PhoneConfig.LoadOrCreate(cfgPath);
 
-            if (context.Services.TryGetService(out _registry) && _registry != null)
+            if (context.Client != null && context.Client.InfoAccessories != null)
+            {
+                _registry = context.Client.InfoAccessories;
                 _registry.Add(this);
+            }
             else
-                context.Log.Error("IInfoAccessoryHookRegistry unavailable — info displays will not be granted");
+                context.Log.Error("IClientServices.InfoAccessories unavailable — info displays will not be granted");
 
             context.Log.Info("I-Have-My-Phone-Anyway loaded. Enabled=" + _config.Enabled);
         }

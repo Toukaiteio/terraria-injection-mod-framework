@@ -49,13 +49,10 @@ namespace TIMF.Abstractions
     }
 
     /// <summary>
-    /// Hook invoked while the game draws map icons (fullscreen map, minimap and overlay).
-    /// Runs inside the vanilla open SpriteBatch, so draw directly on Main.spriteBatch using the
-    /// coordinate transform from <see cref="MapOverlayInfo"/> — do NOT call Begin/End.
-    ///
-    /// Register into <see cref="IModContext.Services"/> via <see cref="IMapOverlayHookRegistry"/>.
-    /// Set <paramref name="hoverText"/> to show a tooltip when the mouse is over your icon.
+    /// Client-only map overlay hook. Register via <see cref="IClientServices.MapOverlay"/>.
+    /// Runs inside the open vanilla SpriteBatch — do not Begin/End.
     /// </summary>
+    [TimfHook(TimfHookKind.Client)]
     public interface IMapOverlayHook
     {
         void OnDrawMap(MapOverlayInfo info, ref string hoverText);

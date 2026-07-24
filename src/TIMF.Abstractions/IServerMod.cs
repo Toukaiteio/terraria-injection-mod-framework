@@ -1,19 +1,20 @@
 namespace TIMF.Abstractions
 {
     /// <summary>
-    /// Optional interface for mods that need an explicit server-logic activate/deactivate
-    /// (typically <see cref="TimfSide.Both"/>). Pure <see cref="TimfSide.Server"/> mods
-    /// can rely on delayed <see cref="IMod.Load"/> / <see cref="IMod.Unload"/> instead.
+    /// Optional authority lifecycle: explicit activate / deactivate when the session
+    /// allows server-side logic. Recommended for <see cref="TimfSide.Both"/> and
+    /// useful for <see cref="TimfSide.Server"/> / <see cref="TimfSide.Plugin"/>.
+    /// Pure deferred mods may rely on <see cref="IMod.Load"/> / <see cref="IMod.Unload"/> alone.
     /// </summary>
     public interface IServerMod
     {
         /// <summary>
-        /// Called when this session allows server-authoritative logic for this mod
-        /// (SP / host / dedicated, or multiplayer client after a successful handshake).
+        /// Session allows authority for this mod (SP / host / dedicated;
+        /// or multiplayer client after handshake for Server/Both — never for Plugin).
         /// </summary>
         void OnServerActivate(IModContext context);
 
-        /// <summary>Called when leaving the world / disconnecting / dedicated shutdown.</summary>
+        /// <summary>Leaving the world / disconnect / dedicated shutdown.</summary>
         void OnServerDeactivate();
     }
 }

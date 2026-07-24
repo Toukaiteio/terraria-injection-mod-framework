@@ -7,18 +7,19 @@ using TIMF.Abstractions;
 namespace AutoHeal
 {
     /// <summary>
-    /// Client-side automatic Quick Heal / Quick Mana (behavior-level port of Mašina's
-    /// "Automatic Quick Heal" / AutoHealMod — source is hideCode).
+    /// Example <see cref="IClientMod"/>: automatic Quick Heal / Quick Mana.
     ///
-    /// When local HP or mana drops to or below a configurable ratio of max, calls the
-    /// vanilla <see cref="Player.QuickHeal"/> / <see cref="Player.QuickMana"/> paths so
-    /// all consumable heal/mana items work the same as the quick-use hotkeys (including
-    /// potion sickness / best-potion selection). No teleport or non-info side effects.
+    /// Best-practice shape:
+    /// <list type="bullet">
+    /// <item>Implement <see cref="IClientMod"/> so the loader classifies as Client.</item>
+    /// <item>Optional explicit <c>[TimfMod(Side = Client)]</c> for documentation.</item>
+    /// <item>Register hooks via <see cref="IModContext.Client"/> (null on dedicated).</item>
+    /// </list>
     ///
     /// Driven from <see cref="IPlayerUpdateHook"/> (Player.ItemCheck prefix).
     /// </summary>
     [TimfMod(Id = "AutoHeal", Side = TimfSide.Client)]
-    public sealed class AutoHealMod : IMod, IModSettings, IPlayerUpdateHook
+    public sealed class AutoHealMod : IClientMod, IModSettings, IPlayerUpdateHook
     {
         private IModContext _ctx;
         private AutoHealConfig _config;
@@ -33,10 +34,13 @@ namespace AutoHeal
             var cfgPath = Path.Combine(context.ConfigDirectory, "AutoHeal.json");
             _config = AutoHealConfig.LoadOrCreate(cfgPath);
 
-            if (context.Services.TryGetService(out _hookRegistry) && _hookRegistry != null)
+            if (context.Client != null && context.Client.PlayerUpdate != null)
+            {
+                _hookRegistry = context.Client.PlayerUpdate;
                 _hookRegistry.Add(this);
+            }
             else
-                context.Log.Error("IPlayerUpdateHookRegistry unavailable — auto heal will not run");
+                context.Log.Error("IClientServices.PlayerUpdate unavailable — feature will not run");
 
             context.Log.Info(
                 "AutoHeal loaded. AutoHeal=" + _config.AutoHeal +

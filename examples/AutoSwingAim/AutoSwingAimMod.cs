@@ -24,7 +24,7 @@ namespace AutoSwingAim
     /// A/D mid-swing turns without permanently rewriting item defaults.
     /// </summary>
     [TimfMod(Id = "AutoSwingAim", Side = TimfSide.Client)]
-    public sealed class AutoSwingAimMod : IMod, IModSettings, IPlayerUpdateHook
+    public sealed class AutoSwingAimMod : IClientMod, IModSettings, IPlayerUpdateHook
     {
         private IModContext _ctx;
         private AutoSwingAimConfig _config;
@@ -46,10 +46,13 @@ namespace AutoSwingAim
             var cfgPath = Path.Combine(context.ConfigDirectory, "AutoSwingAim.json");
             _config = AutoSwingAimConfig.LoadOrCreate(cfgPath);
 
-            if (context.Services.TryGetService(out _hookRegistry) && _hookRegistry != null)
+            if (context.Client != null && context.Client.PlayerUpdate != null)
+            {
+                _hookRegistry = context.Client.PlayerUpdate;
                 _hookRegistry.Add(this);
+            }
             else
-                context.Log.Error("IPlayerUpdateHookRegistry unavailable — auto-swing aim fix will not run");
+                context.Log.Error("IClientServices.PlayerUpdate unavailable — feature will not run");
 
             context.Log.Info(
                 "AutoSwingAim loaded. Enabled=" + _config.Enabled +

@@ -23,7 +23,10 @@ namespace TIMF.Core.Session
         }
     }
 
-    /// <summary>Local catalog of discovered Server/Both mods (whether or not yet activated).</summary>
+    /// <summary>
+    /// Local catalog of handshake-visible Server/Both mods (Plugin excluded).
+    /// Used for TIMF join protocol only — not the full server-authority set.
+    /// </summary>
     internal sealed class ServerModCatalog
     {
         private readonly List<ServerModEntry> _entries = new List<ServerModEntry>();
@@ -44,7 +47,9 @@ namespace TIMF.Core.Session
             {
                 if (d == null || d.FailReason != null)
                     continue;
-                if (!d.ParticipatesInServer)
+                // Plugins intentionally stay out of the handshake catalog so pure vanilla
+                // clients never need TIMF when the host only runs Plugin-side balance mods.
+                if (!d.ParticipatesInHandshake)
                     continue;
                 if (string.IsNullOrEmpty(d.Id))
                     continue;

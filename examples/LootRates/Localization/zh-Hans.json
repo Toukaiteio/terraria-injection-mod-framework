@@ -1,0 +1,8 @@
+{
+  "Settings.Title": "原版兼容的掉落倍率（仅主机权威）。",
+  "Settings.Hint": "在单机 / 主机 / 专用服运行。原版客户端仍收原版物品同步包。",
+  "Settings.Enabled": "启用掉落倍率",
+  "Settings.ExtraRolls": "额外物品掉落次数",
+  "Settings.CoinMult": "金币倍率",
+  "Settings.Status": "状态：{0}  ·  物品 +{1} 次  ·  金币 ×{2}  ·  钩子 {3}"
+}

@@ -9,7 +9,8 @@ namespace TIMF.Core.Session
 {
     /// <summary>
     /// Tracks Main.netMode / dedServ / gameMenu and drives server-mod Activate/Deactivate
-    /// plus TIMF handshake (only when local Server/Both mods exist).
+    /// plus TIMF handshake (only when local handshake-visible Server/Both mods exist).
+    /// <see cref="TimfSide.Plugin"/> activates on host/SP/dedicated without arming handshake.
     /// </summary>
     internal sealed class SessionService : ITimfSession
     {
@@ -69,19 +70,29 @@ namespace TIMF.Core.Session
 
         public bool HasLocalServerSideMods => _mods.HasLocalServerSideMods;
 
-        /// <summary>Install net hooks only when local Server/Both mods exist.</summary>
+        /// <summary>
+        /// Install net hooks only when handshake-visible Server/Both mods exist.
+        /// Plugin-only hosts skip the transport but still activate plugins on session enter.
+        /// </summary>
         public void Start()
         {
-            if (!_mods.HasLocalServerSideMods)
+            if (_mods.HasLocalServerSideMods)
             {
-                _log.Info("SessionService: no local server-side mods — handshake disabled");
-                return;
+                _net = new TimfNetTransport(_log, this);
+                _net.Install();
+                DedServSessionPollPatch.SetSession(this, _log);
+                _log.Info("SessionService: handshake transport armed (MessageID " + TimfNetProtocol.MessageId + ")");
             }
-
-            _net = new TimfNetTransport(_log, this);
-            _net.Install();
-            DedServSessionPollPatch.SetSession(this, _log);
-            _log.Info("SessionService: handshake transport armed (MessageID " + TimfNetProtocol.MessageId + ")");
+            else if (_mods.HasLocalServerAuthorityMods)
+            {
+                // Plugin-only: no TIMF packets, still need dedicated session poll for activate.
+                DedServSessionPollPatch.SetSession(this, _log);
+                _log.Info("SessionService: plugin-only host — handshake disabled (vanilla-compatible)");
+            }
+            else
+            {
+                _log.Info("SessionService: no local server-authority mods — handshake disabled");
+            }
 
             // Dedicated server may already be "in session" at inject time.
             try
@@ -223,7 +234,8 @@ namespace TIMF.Core.Session
                 _pendingClientHello.Clear();
             }
 
-            _log.Info("SessionService: enter " + kind + " — activating all local server mods");
+            _log.Info("SessionService: enter " + kind
+                      + " — activating all local server-authority mods (Server/Both/Plugin)");
             try
             {
                 _mods.ActivateAllLocalServerMods();

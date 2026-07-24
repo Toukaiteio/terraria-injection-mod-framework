@@ -14,7 +14,7 @@ namespace HighLight
     /// Behavior inspired by the tML HighLight client mod (not a source port).
     /// </summary>
     [TimfMod(Id = "HighLight", Side = TimfSide.Client)]
-    public sealed class HighLightMod : IMod, IModSettings
+    public sealed class HighLightMod : IClientMod, IModSettings
     {
         private IModContext _ctx;
         private HighLightConfig _config;
@@ -36,7 +36,8 @@ namespace HighLight
             _config = HighLightConfig.LoadOrCreate(cfgPath);
             _enabled = _config.Enabled;
             var defaultKey = ParseKey(_config.ToggleKey, Keys.P);
-            if (context.Services.TryGetService(out _keybinds) && _keybinds != null)
+            _keybinds = context.Client != null ? context.Client.Keybinds : null;
+            if (_keybinds != null)
                 _toggle = _keybinds.Register(ToggleId, context.L.Get("Keybind.Toggle", "HighLight Toggle"), defaultKey);
             else
                 context.Log.Error("IKeybindService unavailable — HighLight toggle will not work");

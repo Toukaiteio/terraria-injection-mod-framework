@@ -43,6 +43,19 @@ namespace TIMF.Abstractions
         bool InputFloat(string label, ref float value, float step = 0.1f);
 
         /// <summary>
+        /// Horizontal tab strip for multi-page windows. Labels wrap to extra rows when needed.
+        /// Returns true when <paramref name="selectedIndex"/> changed this frame.
+        /// Clamps the index into [0, labels.Length). Null/empty labels render as empty tabs.
+        /// </summary>
+        bool TabBar(string id, string[] labels, ref int selectedIndex);
+
+        /// <summary>
+        /// Collapsible section header (full width). Returns true when <paramref name="open"/> is true
+        /// so the caller can draw the body. Click toggles open.
+        /// </summary>
+        bool CollapsingHeader(string label, ref bool open);
+
+        /// <summary>
         /// Single-line text field. Returns true when the text changed this frame.
         /// Uses the game's input path when focused so Chinese IME works; Ctrl+V pastes.
         /// While focused it captures typing (see <see cref="WantCaptureKeyboard"/>).

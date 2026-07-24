@@ -1,12 +1,13 @@
 namespace TIMF.Abstractions
 {
     /// <summary>
-    /// Implement this on your <see cref="IMod"/> class to contribute a settings page.
-    /// The settings hub calls <see cref="BuildSettingsUI"/> each frame while your page is open.
+    /// Optional settings page for the Mod Settings hub.
+    /// Client-process only (UI). Authority-only mods that implement this still need a
+    /// client host session (SP/Host) to open the hub — dedicated servers have no UI.
     ///
-    /// IMPORTANT: build widgets directly on the provided <paramref name="ui"/> — do NOT call
-    /// <c>ui.Begin</c>/<c>ui.End</c>; your widgets are appended into the hub's already-open window.
+    /// IMPORTANT: build widgets on <paramref name="ui"/> only — do not call Begin/End.
     /// </summary>
+    [TimfHook(TimfHookKind.Client)]
     public interface IModSettings
     {
         void BuildSettingsUI(IImmediateModeUi ui);

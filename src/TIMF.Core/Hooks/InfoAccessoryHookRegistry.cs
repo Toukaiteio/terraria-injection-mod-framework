@@ -23,6 +23,15 @@ namespace TIMF.Core.Hooks
         {
             if (hook == null)
                 return;
+            try
+            {
+                if (Terraria.Main.dedServ)
+                {
+                    _log.Error("IInfoAccessoryHook.Add rejected: client hook cannot register on dedicated server");
+                    return;
+                }
+            }
+            catch { /* ignore */ }
             lock (_lock)
             {
                 if (!_hooks.Contains(hook))

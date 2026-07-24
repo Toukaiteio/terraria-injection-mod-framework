@@ -105,13 +105,22 @@ namespace TIMF.UI
 
         private const float Pad = 10f;
         private const float TitleH = 26f;
-        private const float RowH = 22f;
+        private const float RowH = 24f;
         private const float WidgetW = 200f;
-        private const float DefaultWindowW = 360f;
+        private const float DefaultWindowW = 380f;
         private const float ScrollbarW = 10f;
         private const float ChildPad = 4f;
         private const float CollapseBtnSize = 16f;
         private const float CloseBtnSize = 16f;
+        // Terraria MouseText MeasureString overstates height (extra line padding), so pure
+        // (boxH - measureH)/2 looks optically high. Use a capped optical height + slight nudge.
+        private const float TextOpticalMaxH = 16f;
+        private const float TextOpticalMinH = 12f;
+        private const float TextOpticalScale = 0.70f;
+        private const float TextOpticalNudgeY = 1f;
+        private const float BtnH = 24f;
+        private const float TabH = 24f;
+        private const float HeaderH = 26f;
 
         private static readonly Color ColWinBg = new Color(18, 18, 24, 220);
         private static readonly Color ColTitle = new Color(40, 44, 70, 240);
@@ -126,6 +135,13 @@ namespace TIMF.UI
         private static readonly Color ColChildBg = new Color(12, 12, 18, 180);
         private static readonly Color ColScrollBg = new Color(25, 26, 36, 220);
         private static readonly Color ColScrollThumb = new Color(90, 100, 150, 255);
+        private static readonly Color ColTabIdle = new Color(40, 44, 68, 255);
+        private static readonly Color ColTabHot = new Color(70, 80, 130, 255);
+        private static readonly Color ColTabActive = new Color(90, 120, 210, 255);
+        private static readonly Color ColTabUnderline = new Color(140, 170, 255, 255);
+        private static readonly Color ColHeader = new Color(36, 40, 62, 255);
+        private static readonly Color ColHeaderHot = new Color(52, 58, 90, 255);
+        private static readonly Color ColHeaderOpen = new Color(48, 56, 88, 255);
 
         public ImmediateModeUi(ILogger log)
         {
@@ -974,7 +990,7 @@ namespace TIMF.UI
             var text = label ?? "Button";
             var sz = Measure(text);
             var w = Math.Max(80f, sz.X + 20f);
-            var h = Math.Max(RowH, sz.Y + 8f);
+            var h = BtnH;
             var rect = new Rectangle((int)_cursorX, (int)_cursorY, (int)w, (int)h);
             var id = _cur.Title + "##btn##" + label + ChildIdSuffix();
 
@@ -992,7 +1008,7 @@ namespace TIMF.UI
             else if (hot) col = ColBtnHot;
 
             PushRect(rect, col);
-            PushText(text, new Vector2(rect.X + (w - sz.X) * 0.5f, rect.Y + (h - sz.Y) * 0.5f), ColText);
+            PushTextCentered(text, rect, ColText);
 
             var clicked = hot && _lmbReleased && (_activeId == id || _hotId == id);
             _lineHeight = Math.Max(_lineHeight, h + 2);
@@ -1019,7 +1035,7 @@ namespace TIMF.UI
             AdvanceLine();
             var text = label ?? "";
             var sz = Measure(text);
-            var h = Math.Max(RowH, sz.Y + 6f);
+            var h = Math.Max(RowH, TextOpticalH(sz.Y) + 8f);
             // Full available width inside the window / child content area.
             float right;
             if (_child != null)
@@ -1044,7 +1060,10 @@ namespace TIMF.UI
             else if (hot)
                 PushRect(rect, ColBtnHot * 0.6f);
 
-            PushText(text, new Vector2(rect.X + 6, rect.Y + (h - sz.Y) * 0.5f), ColText);
+            PushText(
+                text,
+                new Vector2(rect.X + 6, TextYInBox(rect.Y, rect.Height, sz.Y)),
+                ColText);
 
             var clicked = hot && _lmbReleased && (_activeId == id || _hotId == id);
             _contentMaxX = Math.Max(_contentMaxX, _cursorX + w);
@@ -1063,9 +1082,11 @@ namespace TIMF.UI
             var box = 16;
             var text = label ?? "";
             var sz = Measure(text);
+            var rowH = Math.Max(RowH, Math.Max(box + 4f, TextOpticalH(sz.Y) + 8f));
             var totalW = box + 8 + sz.X;
-            var rect = new Rectangle((int)_cursorX, (int)_cursorY + 2, box, box);
-            var hit = new Rectangle((int)_cursorX, (int)_cursorY, (int)totalW + 4, (int)Math.Max(RowH, sz.Y + 4));
+            var boxY = (int)(_cursorY + (rowH - box) * 0.5f);
+            var rect = new Rectangle((int)_cursorX, boxY, box, box);
+            var hit = new Rectangle((int)_cursorX, (int)_cursorY, (int)totalW + 4, (int)rowH);
             var id = _cur.Title + "##chk##" + label + ChildIdSuffix();
 
             var hot = Hit(hit);
@@ -1092,10 +1113,13 @@ namespace TIMF.UI
             if (value)
                 PushRect(new Rectangle(rect.X + 3, rect.Y + 3, box - 6, box - 6), ColCheck);
 
-            PushText(text, new Vector2(_cursorX + box + 8, _cursorY + 2), ColText);
+            PushText(
+                text,
+                new Vector2(_cursorX + box + 8, TextYInBox(_cursorY, rowH, sz.Y)),
+                ColText);
 
             _contentMaxX = Math.Max(_contentMaxX, _cursorX + totalW);
-            _lineHeight = Math.Max(_lineHeight, Math.Max(RowH, sz.Y + 6));
+            _lineHeight = rowH;
             _cursorY += _lineHeight;
             _cursorX = _lineStartX;
             _lineHeight = RowH;
@@ -1159,6 +1183,148 @@ namespace TIMF.UI
             return changed;
         }
 
+        public bool TabBar(string id, string[] labels, ref int selectedIndex)
+        {
+            if (_cur == null)
+                return false;
+            if (labels == null || labels.Length == 0)
+                return false;
+
+            if (selectedIndex < 0)
+                selectedIndex = 0;
+            if (selectedIndex >= labels.Length)
+                selectedIndex = labels.Length - 1;
+
+            AdvanceLine();
+
+            float right;
+            if (_child != null)
+                right = _child.ViewX + _child.ViewW - ChildPad;
+            else
+                right = _cur.X + _cur.W - Pad;
+
+            var availW = Math.Max(40f, right - _cursorX);
+            var startX = _cursorX;
+            var x = startX;
+            var y = _cursorY;
+            var rowH = TabH;
+            var tabPadX = 14f;
+            var gap = 4f;
+            var changed = false;
+            var maxRight = startX;
+            var barId = string.IsNullOrEmpty(id) ? "tabs" : id;
+
+            for (var i = 0; i < labels.Length; i++)
+            {
+                var text = labels[i] ?? "";
+                var sz = Measure(text);
+                var tw = Math.Max(40f, sz.X + tabPadX * 2f);
+                // Wrap to next row when the tab would overflow (keep at least one tab per row).
+                if (x > startX && x + tw > startX + availW)
+                {
+                    x = startX;
+                    y += rowH + 2f;
+                }
+
+                var rect = new Rectangle((int)x, (int)y, (int)tw, (int)rowH);
+                var tid = _cur.Title + "##tab##" + barId + "##" + i + ChildIdSuffix();
+                var selected = i == selectedIndex;
+                var hot = Hit(rect);
+                if (hot)
+                {
+                    _hotId = tid;
+                    _wantCapture = true;
+                    if (_lmbClick)
+                        _activeId = tid;
+                }
+
+                var col = selected ? ColTabActive : (hot ? ColTabHot : ColTabIdle);
+                PushRect(rect, col);
+                // Bottom accent for the active tab.
+                if (selected)
+                    PushRect(new Rectangle(rect.X, rect.Bottom - 2, rect.Width, 2), ColTabUnderline);
+                PushRect(new Rectangle(rect.X, rect.Y, rect.Width, 1), ColBorder * 0.6f);
+                PushRect(new Rectangle(rect.X, rect.Y, 1, rect.Height), ColBorder * 0.6f);
+                PushRect(new Rectangle(rect.Right - 1, rect.Y, 1, rect.Height), ColBorder * 0.6f);
+
+                PushTextCentered(text, rect, ColText);
+
+                if (hot && _lmbReleased && (_activeId == tid || _hotId == tid) && !selected)
+                {
+                    selectedIndex = i;
+                    changed = true;
+                }
+
+                x += tw + gap;
+                if (rect.Right > maxRight)
+                    maxRight = rect.Right;
+            }
+
+            _contentMaxX = Math.Max(_contentMaxX, maxRight);
+            _cursorY = y + rowH + 6f;
+            _cursorX = _lineStartX;
+            _lineHeight = RowH;
+            _sameLine = false;
+            _hasLastItem = false;
+            return changed;
+        }
+
+        public bool CollapsingHeader(string label, ref bool open)
+        {
+            if (_cur == null)
+                return false;
+
+            AdvanceLine();
+
+            float right;
+            if (_child != null)
+                right = _child.ViewX + _child.ViewW - ChildPad;
+            else
+                right = _cur.X + _cur.W - Pad;
+
+            var text = label ?? "";
+            var sz = Measure(text);
+            var h = HeaderH;
+            var w = Math.Max(60f, right - _cursorX);
+            var rect = new Rectangle((int)_cursorX, (int)_cursorY, (int)w, (int)h);
+            var id = _cur.Title + "##hdr##" + label + ChildIdSuffix();
+
+            var hot = Hit(rect);
+            if (hot)
+            {
+                _hotId = id;
+                _wantCapture = true;
+                if (_lmbClick)
+                    _activeId = id;
+            }
+
+            if (hot && _lmbReleased && (_activeId == id || _hotId == id))
+                open = !open;
+
+            var col = open ? ColHeaderOpen : (hot ? ColHeaderHot : ColHeader);
+            PushRect(rect, col);
+            PushRect(new Rectangle(rect.X, rect.Y, rect.Width, 1), ColBorder * 0.55f);
+            PushRect(new Rectangle(rect.X, rect.Bottom - 1, rect.Width, 1), ColBorder * 0.55f);
+
+            // Chevron box on the left, optically centered.
+            var chev = new Rectangle(rect.X + 6, rect.Y + (int)((h - 14) * 0.5f), 14, 14);
+            DrawCollapseChevron(chev, !open, hot ? ColBtnHot : ColText, raw: false);
+
+            var textX = chev.Right + 6;
+            PushText(
+                text,
+                new Vector2(textX, TextYInBox(rect.Y, rect.Height, sz.Y)),
+                ColText);
+
+            _contentMaxX = Math.Max(_contentMaxX, _cursorX + w);
+            _cursorY += h + 3;
+            _cursorX = _lineStartX;
+            _lineHeight = RowH;
+            _sameLine = false;
+            _hasLastItem = false;
+            return open;
+        }
+
         public bool InputFloat(string label, ref float value, float step = 0.1f)
         {
             // Minimal: label + [-] value [+] buttons
@@ -1187,8 +1353,7 @@ namespace TIMF.UI
 
             PushRect(valRect, ColSliderBg);
             var vs = value.ToString("0.###");
-            var vsz = Measure(vs);
-            PushText(vs, new Vector2(valRect.X + (valRect.Width - vsz.X) * 0.5f, valRect.Y + 3), ColText);
+            PushTextCentered(vs, valRect, ColText);
 
             if (MiniButton(plus, "+", _cur.Title + "##if+##" + label + ChildIdSuffix()))
             {
@@ -1266,7 +1431,10 @@ namespace TIMF.UI
             if (focused && ((int)(_caretBlink * 2) % 2 == 0))
                 shown += "|";
             if (!string.IsNullOrEmpty(shown))
-                PushText(shown, new Vector2(rect.X + 6, rect.Y + 4), ColText);
+            {
+                var tsz = Measure(shown);
+                PushText(shown, new Vector2(rect.X + 6, TextYInBox(rect.Y, rect.Height, tsz.Y)), ColText);
+            }
 
             _contentMaxX = Math.Max(_contentMaxX, _cursorX + boxW);
             _cursorY += boxH + 4;
@@ -1653,9 +1821,36 @@ namespace TIMF.UI
             var col = hot ? ColBtnHot : ColBtn;
             if (_activeId == id) col = ColBtnActive;
             PushRect(rect, col);
-            var sz = Measure(text);
-            PushText(text, new Vector2(rect.X + (rect.Width - sz.X) * 0.5f, rect.Y + 3), ColText);
+            PushTextCentered(text, rect, ColText);
             return hot && _lmbReleased && (_activeId == id || _hotId == id);
+        }
+
+        /// <summary>
+        /// Optical height of Terraria MouseText — MeasureString returns extra line padding.
+        /// </summary>
+        private static float TextOpticalH(float measureH)
+        {
+            if (measureH < 0.1f)
+                return TextOpticalMinH;
+            return MathHelper.Clamp(measureH * TextOpticalScale, TextOpticalMinH, TextOpticalMaxH);
+        }
+
+        /// <summary>Top Y for text so glyphs sit optically centered in a box.</summary>
+        private static float TextYInBox(float boxY, float boxH, float measureH)
+        {
+            var oh = TextOpticalH(measureH);
+            return boxY + (boxH - oh) * 0.5f + TextOpticalNudgeY;
+        }
+
+        private void PushTextCentered(string text, Rectangle rect, Color color)
+        {
+            if (string.IsNullOrEmpty(text))
+                return;
+            var sz = Measure(text);
+            PushText(
+                text,
+                new Vector2(rect.X + (rect.Width - sz.X) * 0.5f, TextYInBox(rect.Y, rect.Height, sz.Y)),
+                color);
         }
 
         private void AdvanceLine()
@@ -1720,15 +1915,12 @@ namespace TIMF.UI
 
             // Title text starts after the collapse button so it never overlaps the icon.
             var titleX = collapseRect.Right + 6;
-            PushText(title, new Vector2(titleX, st.Y + 5), ColText);
+            var titleSz = Measure(title);
+            PushText(title, new Vector2(titleX, TextYInBox(st.Y, TitleH, titleSz.Y)), ColText);
 
-            // Close "×" centered in closeRect so hitbox matches glyph.
-            var closeSz = Measure("×");
-            var closePos = new Vector2(
-                closeRect.X + (closeRect.Width - closeSz.X) * 0.5f,
-                closeRect.Y + (closeRect.Height - closeSz.Y) * 0.5f);
+            // Close "×" optically centered in closeRect.
             var closeColor = Hit(closeRect) ? new Color(255, 120, 120, 255) : ColText;
-            PushText("×", closePos, closeColor);
+            PushTextCentered("×", closeRect, closeColor);
         }
 
         /// <summary>
@@ -1736,7 +1928,7 @@ namespace TIMF.UI
         /// Collapsed → ► (point right); expanded → ▼ (point down). Same 7×7 bounds either way
         /// so the icon never "jumps" relative to the hitbox.
         /// </summary>
-        private void DrawCollapseChevron(Rectangle btn, bool collapsed, Color color)
+        private void DrawCollapseChevron(Rectangle btn, bool collapsed, Color color, bool raw = true)
         {
             const int s = 7;
             var ox = btn.X + (btn.Width - s) / 2;
@@ -1748,7 +1940,8 @@ namespace TIMF.UI
                 for (var row = 0; row < s; row++)
                 {
                     var w = row <= 3 ? row + 1 : (s - row);
-                    PushRectRaw(new Rectangle(ox + 1, oy + row, w, 1), color);
+                    var r = new Rectangle(ox + 1, oy + row, w, 1);
+                    if (raw) PushRectRaw(r, color); else PushRect(r, color);
                 }
             }
             else
@@ -1759,7 +1952,8 @@ namespace TIMF.UI
                     var w = s - row * 2;
                     if (w <= 0)
                         break;
-                    PushRectRaw(new Rectangle(ox + row, oy + 1 + row, w, 1), color);
+                    var r = new Rectangle(ox + row, oy + 1 + row, w, 1);
+                    if (raw) PushRectRaw(r, color); else PushRect(r, color);
                 }
             }
         }

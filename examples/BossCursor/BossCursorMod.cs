@@ -13,7 +13,7 @@ namespace BossCursor
     /// Behavior inspired by the classic Boss Cursor client mod (not a source port).
     /// </summary>
     [TimfMod(Id = "BossCursor", Side = TimfSide.Client)]
-    public sealed class BossCursorMod : IMod, IModSettings
+    public sealed class BossCursorMod : IClientMod, IModSettings
     {
         // NPCID.LunarTower* (1.4.5.6)
         private static readonly int[] PillarTypes = { 422, 493, 507, 517 };
@@ -39,7 +39,8 @@ namespace BossCursor
             _enabled = _config.Enabled;
 
             var defaultKey = ParseKey(_config.ToggleKey, Keys.Insert);
-            if (context.Services.TryGetService(out _keybinds) && _keybinds != null)
+            _keybinds = context.Client != null ? context.Client.Keybinds : null;
+            if (_keybinds != null)
                 _toggle = _keybinds.Register(ToggleId, context.L.Get("Keybind.Toggle", "Boss Cursor Toggle"), defaultKey);
             else
                 context.Log.Error("IKeybindService unavailable — BossCursor toggle will not work");

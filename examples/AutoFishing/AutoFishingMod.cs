@@ -19,7 +19,7 @@ namespace AutoFishing
     /// Toggle with the \ key.
     /// </summary>
     [TimfMod(Id = "AutoFishing", Side = TimfSide.Client)]
-    public sealed class AutoFishingMod : IMod, IModSettings, IPlayerUpdateHook
+    public sealed class AutoFishingMod : IClientMod, IModSettings, IPlayerUpdateHook
     {
         private IModContext _ctx;
         private AutoFishingConfig _config;
@@ -48,15 +48,19 @@ namespace AutoFishing
             _config = AutoFishingConfig.LoadOrCreate(cfgPath);
             var defaultKey = ParseKey(_config.ToggleKey, Keys.OemBackslash);
 
-            if (context.Services.TryGetService(out _keybinds) && _keybinds != null)
+            _keybinds = context.Client != null ? context.Client.Keybinds : null;
+            if (_keybinds != null)
                 _toggle = _keybinds.Register(ToggleId, context.L.Get("Keybind.Toggle", "Auto Fishing Toggle"), defaultKey);
             else
                 context.Log.Error("IKeybindService unavailable — AutoFishing toggle will not work");
 
-            if (context.Services.TryGetService(out _hookRegistry) && _hookRegistry != null)
+            if (context.Client != null && context.Client.PlayerUpdate != null)
+            {
+                _hookRegistry = context.Client.PlayerUpdate;
                 _hookRegistry.Add(this);
+            }
             else
-                context.Log.Error("IPlayerUpdateHookRegistry unavailable — auto fishing will not run");
+                context.Log.Error("IClientServices.PlayerUpdate unavailable — feature will not run");
 
             context.Log.Info("AutoFishing loaded. Toggle=" + ToggleId + " default=" + defaultKey + " enabled=" + _config.Enabled);
         }

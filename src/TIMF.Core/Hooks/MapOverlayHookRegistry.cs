@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Terraria;
 using TIMF.Abstractions;
 
 namespace TIMF.Core.Hooks
@@ -23,6 +24,15 @@ namespace TIMF.Core.Hooks
         {
             if (hook == null)
                 return;
+            try
+            {
+                if (Main.dedServ)
+                {
+                    _log.Error("IMapOverlayHook.Add rejected: client hook cannot register on dedicated server");
+                    return;
+                }
+            }
+            catch { /* ignore */ }
             lock (_lock)
             {
                 if (!_hooks.Contains(hook))

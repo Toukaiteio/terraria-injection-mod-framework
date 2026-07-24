@@ -15,7 +15,7 @@ namespace BlockLocator
     /// the player and throttled. Toggle with the ] key.
     /// </summary>
     [TimfMod(Id = "BlockLocator", Side = TimfSide.Client)]
-    public sealed class BlockLocatorMod : IMod, IModSettings
+    public sealed class BlockLocatorMod : IClientMod, IModSettings
     {
         private IModContext _ctx;
         private BlockLocatorConfig _config;
@@ -44,7 +44,8 @@ namespace BlockLocator
             var cfgPath = Path.Combine(context.ConfigDirectory, "BlockLocator.json");
             _config = BlockLocatorConfig.LoadOrCreate(cfgPath);
             var defaultKey = ParseKey(_config.ToggleKey, Keys.OemCloseBrackets);
-            if (context.Services.TryGetService(out _keybinds) && _keybinds != null)
+            _keybinds = context.Client != null ? context.Client.Keybinds : null;
+            if (_keybinds != null)
                 _toggle = _keybinds.Register(ToggleId, context.L.Get("Keybind.Toggle", "Block Locator Toggle"), defaultKey);
             else
                 context.Log.Error("IKeybindService unavailable — BlockLocator toggle will not work");

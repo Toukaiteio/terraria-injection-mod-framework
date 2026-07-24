@@ -5,10 +5,12 @@ using TIMF.Abstractions;
 namespace TimfServerProbe
 {
     /// <summary>
-    /// Minimal server-side probe: logs activate/deactivate so handshake / SP host paths are visible.
+    /// Example <see cref="IAuthorityMod"/>: logs activate/deactivate so handshake / host paths are visible.
+    /// Handshake-visible Server side with RequiredOnJoin (vanilla clients are kicked when hosting).
+    /// Prefer <see cref="IVanillaPlugin"/> for vanilla-compatible host balance mods.
     /// </summary>
     [TimfMod(Id = "TimfServerProbe", Side = TimfSide.Server, RequiredOnJoin = true)]
-    public sealed class TimfServerProbeMod : IMod, IServerMod
+    public sealed class TimfServerProbeMod : IAuthorityMod, IServerMod
     {
         private ILogger _log;
 
@@ -18,7 +20,10 @@ namespace TimfServerProbe
         public void Load(IModContext context)
         {
             _log = context.Log;
-            _log.Info("TimfServerProbe Load (server path)");
+            _log.Info(
+                "TimfServerProbe Load (authority path). IsAuthoritative="
+                + (context.Authority != null && context.Authority.IsAuthoritative)
+                + " ClientServices=" + (context.Client != null ? "present" : "null"));
         }
 
         public void Unload()
@@ -28,7 +33,9 @@ namespace TimfServerProbe
 
         public void OnServerActivate(IModContext context)
         {
-            (context.Log ?? _log)?.Info("TimfServerProbe OnServerActivate");
+            (context.Log ?? _log)?.Info(
+                "TimfServerProbe OnServerActivate authoritative="
+                + (context.Authority != null && context.Authority.IsAuthoritative));
         }
 
         public void OnServerDeactivate()
@@ -38,7 +45,7 @@ namespace TimfServerProbe
 
         public void PostDraw(GameTime gameTime)
         {
-            // Server-only: no draw. Keep empty for IMod.
+            // Authority-only sample: no draw work.
         }
     }
 }

@@ -12,7 +12,7 @@ namespace ModSettingsHub
     /// </summary>
     [TimfMod(Id = "ModSettingsHub", Side = TimfSide.Client)]
     [TimfDependsOn("TIMF.UI", MinVersion = "1.0.0")]
-    public sealed class ModSettingsHubMod : IMod
+    public sealed class ModSettingsHubMod : IClientMod
     {
         private const string ToggleId = "ModSettingsHub.Toggle";
         private IModContext _ctx;
@@ -33,10 +33,12 @@ namespace ModSettingsHub
         public void Load(IModContext context)
         {
             _ctx = context;
-            if (!context.Services.TryGetService(out _ui) || _ui == null)
-                context.Log.Error("IImmediateModeUi not available — TIMF.UI missing?");
+            _ui = context.Client != null ? context.Client.Ui : null;
+            if (_ui == null)
+                context.Log.Error("IClientServices.Ui unavailable — TIMF.UI missing?");
 
-            if (context.Services.TryGetService(out _keybinds) && _keybinds != null)
+            _keybinds = context.Client != null ? context.Client.Keybinds : null;
+            if (_keybinds != null)
                 _toggle = _keybinds.Register(ToggleId, context.L.Get("Keybind.Toggle", "Mod Settings Toggle"), Keys.F9);
             else
                 context.Log.Error("IKeybindService unavailable — ModSettingsHub toggle will not work");

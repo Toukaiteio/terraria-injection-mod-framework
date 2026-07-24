@@ -15,7 +15,7 @@ namespace WorldMapIcons
     /// icons share the exact transform / SpriteBatch the game uses for its own map icons.
     /// </summary>
     [TimfMod(Id = "WorldMapIcons", Side = TimfSide.Client)]
-    public sealed class WorldMapIconsMod : IMod, IModSettings, IMapOverlayHook
+    public sealed class WorldMapIconsMod : IClientMod, IModSettings, IMapOverlayHook
     {
         private IModContext _ctx;
         private WorldMapIconsConfig _config;
@@ -32,10 +32,13 @@ namespace WorldMapIcons
             _config = WorldMapIconsConfig.LoadOrCreate(cfgPath);
             _tex = new GameTextures(context.Log);
 
-            if (context.Services.TryGetService(out _mapHooks) && _mapHooks != null)
+            if (context.Client != null && context.Client.MapOverlay != null)
+            {
+                _mapHooks = context.Client.MapOverlay;
                 _mapHooks.Add(this);
+            }
             else
-                context.Log.Error("IMapOverlayHookRegistry unavailable — map icons will not draw");
+                context.Log.Error("IClientServices.MapOverlay unavailable — map icons will not draw");
 
             context.Log.Info("WorldMapIcons loaded.");
         }

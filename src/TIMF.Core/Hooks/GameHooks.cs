@@ -9,6 +9,7 @@ using TIMF.Core.Keybinds;
 using TIMF.Core.Modding;
 using TIMF.Core.Session;
 using TIMF.Core.UI;
+// ClientServices lives in Modding
 
 namespace TIMF.Core.Hooks
 {
@@ -177,6 +178,30 @@ namespace TIMF.Core.Hooks
                 _mods.Services.Register<IInfoAccessoryHookRegistry>(_infoAcc);
                 _mods.Services.Register<IKeybindService>(_keybinds);
                 _mods.Services.Register<ITimfSession>(_session);
+
+                // Side-scoped bags (Client null on dedicated).
+                bool dedicated;
+                try { dedicated = Main.dedServ; }
+                catch { dedicated = false; }
+
+                if (!dedicated)
+                {
+                    var client = new ClientServices
+                    {
+                        Keybinds = _keybinds,
+                        PlayerUpdate = _playerUpdate,
+                        MapOverlay = _mapOverlay,
+                        InfoAccessories = _infoAcc,
+                        Services = _mods.Services,
+                    };
+                    _mods.SetClientServices(client);
+                }
+                else
+                {
+                    _mods.SetClientServices(null);
+                    _log.Info("ClientServices not registered (dedicated server process)");
+                }
+
                 KeybindUiPatches.SetService(_keybinds, _log);
             }
             catch (Exception ex)

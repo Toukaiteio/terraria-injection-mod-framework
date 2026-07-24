@@ -1,0 +1,8 @@
+{
+  "Settings.Title": "Vanilla-compatible loot multipliers (host only).",
+  "Settings.Hint": "Runs on SP / Host / dedicated. Vanilla clients receive normal item packets.",
+  "Settings.Enabled": "Enable loot rates",
+  "Settings.ExtraRolls": "Extra item-drop rolls",
+  "Settings.CoinMult": "Coin multiplier",
+  "Settings.Status": "Status: {0}  ·  +{1} item rolls  ·  coins ×{2}  ·  hooks {3}"
+}

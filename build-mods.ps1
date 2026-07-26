@@ -74,6 +74,12 @@ foreach ($dir in $modDirs) {
   Get-ChildItem $dir.FullName -Filter *.png -File -ErrorAction SilentlyContinue | ForEach-Object {
     Copy-Item $_.FullName (Join-Path $outDir $_.Name) -Force
   }
+  $contentSrc = Join-Path $dir.FullName "Content"
+  if (Test-Path $contentSrc) {
+    $contentDst = Join-Path $outDir "Content"
+    New-Item -ItemType Directory -Force -Path $contentDst | Out-Null
+    Copy-Item (Join-Path $contentSrc "*") $contentDst -Recurse -Force
+  }
 
   # Localization catalogs: Localization/*.json
   $locSrc = Join-Path $dir.FullName "Localization"

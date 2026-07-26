@@ -13,6 +13,7 @@ if ($LASTEXITCODE -ne 0) { throw "dotnet build failed" }
 
 $abs = Join-Path $Root "src\TIMF.Abstractions\bin\$Configuration\net48\TIMF.Abstractions.dll"
 $core = Join-Path $Root "src\TIMF.Core\bin\$Configuration\net48\TIMF.Core.dll"
+$content = Join-Path $Root "src\TIMF.Content\bin\$Configuration\net48\TIMF.Content.dll"
 $launcher = Join-Path $Root "src\TIMF.Launcher\bin\$Configuration\net48\TIMF.Launcher.exe"
 $timfUi = Join-Path $Root "libs\TIMF.UI\bin\$Configuration\net48\TIMF.UI.dll"
 
@@ -23,6 +24,7 @@ New-Item -ItemType Directory -Force -Path (Join-Path $Dist "logs") | Out-Null
 
 Copy-Item $abs $Dist -Force
 Copy-Item $core $Dist -Force
+Copy-Item $content $Dist -Force
 Copy-Item $launcher $Dist -Force
 # Harmony and any other managed deps next to Core
 $coreDir = Split-Path $core

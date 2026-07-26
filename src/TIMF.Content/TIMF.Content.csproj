@@ -4,13 +4,12 @@
     <LangVersion>latest</LangVersion>
     <Nullable>disable</Nullable>
     <PlatformTarget>x86</PlatformTarget>
-    <AssemblyName>TIMF.Core</AssemblyName>
-    <RootNamespace>TIMF.Core</RootNamespace>
-    <AllowUnsafeBlocks>false</AllowUnsafeBlocks>
+    <AssemblyName>TIMF.Content</AssemblyName>
+    <RootNamespace>TIMF.Content</RootNamespace>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\TIMF.Abstractions\TIMF.Abstractions.csproj" />
-    <ProjectReference Include="..\TIMF.Content\TIMF.Content.csproj" />
   </ItemGroup>
   <ItemGroup>
     <Reference Include="Terraria">
@@ -21,16 +20,9 @@
       <HintPath>$(TimfXnaDir)\Microsoft.Xna.Framework.dll</HintPath>
       <Private>false</Private>
     </Reference>
-    <Reference Include="Microsoft.Xna.Framework.Game">
-      <HintPath>$(TimfXnaDir)\Microsoft.Xna.Framework.Game.dll</HintPath>
-      <Private>false</Private>
-    </Reference>
     <Reference Include="Microsoft.Xna.Framework.Graphics">
       <HintPath>$(TimfXnaDir)\Microsoft.Xna.Framework.Graphics.dll</HintPath>
       <Private>false</Private>
     </Reference>
-  </ItemGroup>
-  <ItemGroup>
-    <PackageReference Include="Lib.Harmony" Version="2.3.3" />
   </ItemGroup>
 </Project>

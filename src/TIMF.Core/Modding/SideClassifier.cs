@@ -23,6 +23,7 @@ namespace TIMF.Core.Modding
             public bool HasAuthorityCapability;
             public TimfSide InferredSide;
             public bool UsedExplicitSide;
+            public bool IsContentMod;
         }
 
         public static Result Classify(Type entryType, TimfModAttribute attr)
@@ -45,6 +46,10 @@ namespace TIMF.Core.Modding
             // lifecycle interface and deliberately does not count — otherwise a client mod that
             // just wants activate/deactivate callbacks would silently gain an authority half.
             r.HasAuthorityCapability = typeof(IAuthorityMod).IsAssignableFrom(entryType);
+
+            // IContentMod derives from both capability markers, so it needs no special
+            // handling in inference — it only carries an extra net-profile rule.
+            r.IsContentMod = typeof(TIMF.Content.IContentMod).IsAssignableFrom(entryType);
 
             r.InferredSide = Infer(r.HasClientCapability, r.HasAuthorityCapability);
             r.UsedExplicitSide = attr != null && attr.SideSpecified;
@@ -93,6 +98,16 @@ namespace TIMF.Core.Modding
             {
                 return "Net=" + r.NetProfile + " requires an authority half. "
                        + "Implement IAuthorityMod, or leave Net at TimfNetProfile.Vanilla.";
+            }
+
+            // Custom content ids are meaningless to a peer that does not have the same mod —
+            // a vanilla client cannot render or even name them — so content may not claim to
+            // be vanilla-join compatible.
+            if (r.IsContentMod && r.NetProfile == TimfNetProfile.Vanilla)
+            {
+                return "IContentMod requires Net=TimfNetProfile.Optional or Required. "
+                       + "Custom content ids only mean anything to a peer running the same mod, "
+                       + "so a content mod can never stay vanilla-join compatible.";
             }
 
             return null;

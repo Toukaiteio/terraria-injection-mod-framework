@@ -28,6 +28,7 @@ namespace TIMF.Core.Modding
         private readonly WeatherService _weatherService;
         private readonly PrefixService _prefixService;
         private readonly AuthorityServices _authorityServices;
+        private readonly Content.ContentManager _content;
         private IClientServices _clientServices;
         private LanguageService _language;
         private bool _isDedicated;
@@ -42,6 +43,20 @@ namespace TIMF.Core.Modding
         public IWeatherService Weather => _weatherService;
         public IPrefixService Prefix => _prefixService;
         public IClientServices ClientServices => _clientServices;
+
+        /// <summary>Registered custom content and the id space it occupies.</summary>
+        internal Content.ContentManager Content => _content;
+
+        /// <summary>Directory holding a loaded mod's assembly, or null when it is not loaded.</summary>
+        internal string ResolveModDirectory(string modId)
+        {
+            foreach (var d in _descriptors)
+            {
+                if (d != null && string.Equals(d.Id, modId, StringComparison.OrdinalIgnoreCase))
+                    return System.IO.Path.GetDirectoryName(d.Path);
+            }
+            return null;
+        }
 
         /// <summary>True when any handshake-profile mod is enabled (arms the TIMF net protocol).</summary>
         public bool HasLocalServerSideMods => _serverCatalog.HasAny;
@@ -76,10 +91,12 @@ namespace TIMF.Core.Modding
             _weatherService = new WeatherService(_log);
             _prefixService = new PrefixService();
             _authorityServices = new AuthorityServices(_weatherService, _prefixService);
+            _content = new Content.ContentManager(_log, _configDir);
             _services.Register<ILanguageService>(_language);
             _services.Register<IWeatherService>(_weatherService);
             _services.Register<IPrefixService>(_prefixService);
             _services.Register<IAuthorityServices>(_authorityServices);
+            _services.Register<TIMF.Content.IContentLookup>(_content);
         }
 
         /// <summary>
@@ -270,6 +287,11 @@ namespace TIMF.Core.Modding
                     _log.Error("Failed to load mod " + d.Id, ex);
                 }
             }
+
+            // Every content mod has now declared itself, so ids can be allocated for the whole
+            // set at once and the vanilla arrays grown to fit before anything indexes them.
+            try { _content.FinalizeRegistration(); }
+            catch (Exception ex) { _log.Error("Content finalisation failed", ex); }
 
             // Handshake catalog: Optional/Required profiles only (Vanilla excluded by definition).
             _serverCatalog.Rebuild(_descriptors.Where(d => d.UserEnabled));
@@ -781,6 +803,14 @@ namespace TIMF.Core.Modding
             d.Context = ctx;
 
             _log.Info("Loading mod " + d.Id + " v" + d.Version + " side=" + d.Side + " from " + Path.GetFileName(d.Path));
+
+            // Declarations are collected before Load so ids can be allocated for the whole set
+            // at once. Ids therefore are not available yet inside Load — mods resolve
+            // IContentLookup lazily, the same way IModRegistry already works.
+            var contentMod = mod as TIMF.Content.IContentMod;
+            if (contentMod != null)
+                _content.Collect(contentMod, d.Id);
+
             mod.Load(ctx);
             d.Loaded = true;
             if (!_mods.Contains(mod))

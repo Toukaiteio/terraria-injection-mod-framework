@@ -150,6 +150,7 @@ namespace TIMF.Core.Hooks
         private readonly MapOverlayHookRegistry _mapOverlay;
         private readonly InfoAccessoryHookRegistry _infoAcc;
         private readonly KeybindService _keybinds;
+        private readonly Content.ContentTextureLoader _contentTextures;
         private SessionService _session;
         private Harmony _harmony;
         private bool _installed;
@@ -166,6 +167,7 @@ namespace TIMF.Core.Hooks
             _mapOverlay = new MapOverlayHookRegistry(log);
             _infoAcc = new InfoAccessoryHookRegistry(log);
             _keybinds = new KeybindService(log);
+            _contentTextures = new Content.ContentTextureLoader(log, mods.Content);
             _session = new SessionService(log, mods);
         }
 
@@ -225,7 +227,19 @@ namespace TIMF.Core.Hooks
                 DrawCursorUiPatch.SetHooks(this);
                 DrawMenuInputBlockPatch.SetHooks(this);
                 KeybindUiPatches.SetService(_keybinds, _log);
+                Content.ItemContentPatches.Bind(_mods.Content, _log);
+                Content.TileContentPatches.Bind(_mods.Content, _log);
+                Content.WallContentPatches.Bind(_mods.Content, _log);
                 _harmony.PatchAll(typeof(DrawVersionNumberPatch).Assembly);
+                Content.ItemContentPatches.Install(_harmony, _log);
+                Content.TileContentPatches.Install(_harmony, _log);
+                Content.WallContentPatches.Install(_harmony, _log);
+                Content.ContentBootstrapPatch.Install(_harmony, _mods.Content, _log);
+                SpriteBatchGuardPatch.Install(_harmony, _log);
+                Content.ContentSaveDiagnostics.Install(_harmony, _mods.Content, _log);
+                Content.PlayerContentSidecar.Install(_harmony, _mods.Content, _log);
+                Content.WorldChestSidecar.Install(_harmony, _mods.Content, _log);
+                Content.WorldTileSidecar.Install(_harmony, _mods.Content, _log);
                 // Keybind UI patches are registered explicitly (class has no [HarmonyPatch] marker
                 // for PatchAll discovery of nested method attributes in all Harmony versions).
                 KeybindUiPatches.Install(_harmony, _log);
@@ -318,8 +332,21 @@ namespace TIMF.Core.Hooks
                 try { _session?.Poll(); }
                 catch (Exception ex) { _log.Error("SessionService.Poll failed", ex); }
 
+                try { Content.WorldTileSidecar.PollDeferredRestore(); }
+                catch (Exception ex) { _log.Error("Deferred custom tile restore failed", ex); }
+
+                // This intentionally follows the tile restore: custom chest entities are only
+                // recreated after their 2x2 custom tile footprint is authoritative.
+                try { Content.WorldChestSidecar.PollDeferredRestore(); }
+                catch (Exception ex) { _log.Error("Deferred custom chest restore failed", ex); }
+
                 if (Main.dedServ)
                     return;
+
+                // Textures need a live GraphicsDevice, so this is the first point where they
+                // can be built. Self-latching: a no-op after the first successful pass.
+                try { _contentTextures.EnsureLoaded(_mods.ResolveModDirectory); }
+                catch (Exception ex) { _log.Error("Content texture load failed", ex); }
 
                 // Critical: DrawCursor / interface layers often leave SpriteBatch open.
                 // Overlay mods (HighLight, BossCursor, …) do their own Begin/End — they need a closed batch.
@@ -359,6 +386,12 @@ namespace TIMF.Core.Hooks
                 try { uiHost?.Render(); }
                 catch (Exception ex) { _log.Error("IUiHost.Render failed", ex); }
 
+                // A batch left open here survives to the next frame and kills DoDraw's
+                // PrepareRenderTarget, where the stack blames an unrelated renderer. Naming the
+                // phase that leaked is the only way to tell TIMF's UI apart from a mod's own
+                // PostDraw drawing.
+                ReportIfBatchOpen("after IUiHost.Render");
+
                 try
                 {
                     IImmediateModeUi imui;
@@ -381,6 +414,42 @@ namespace TIMF.Core.Hooks
             {
                 _log.Error("RunUiPass error", ex);
             }
+        }
+
+        private long _leakReports;
+
+        /// <summary>
+        /// Diagnostic only: says whether a batch is open at <paramref name="phase"/>, and leaves
+        /// it open so the normal flow is unchanged. Probing costs an End/Begin pair, so this
+        /// stops reporting once the point has been made.
+        /// </summary>
+        private void ReportIfBatchOpen(string phase)
+        {
+            if (_leakReports >= 5)
+                return;
+
+            SpriteBatch sb;
+            try { sb = Main.spriteBatch; }
+            catch { return; }
+            if (sb == null)
+                return;
+
+            try
+            {
+                sb.End();
+            }
+            catch (InvalidOperationException)
+            {
+                return;   // not open — the expected case
+            }
+            catch
+            {
+                return;
+            }
+
+            _leakReports++;
+            _log.Warn("SpriteBatch still open " + phase + " (occurrence #" + _leakReports
+                      + ") — TIMF's UI pass is leaking the batch, not a mod's PostDraw.");
         }
 
         private static void SafeEndSpriteBatch()

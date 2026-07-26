@@ -1,6 +1,10 @@
 # TIMF API 参考
 
-`TIMF.Abstractions` 的完整公共 API。所有类型都在 `TIMF.Abstractions` 命名空间下（包括 `Weather/`、`Prefix/` 子目录中的类型，它们**没有**子命名空间）。
+`TIMF.Abstractions` 的完整公共 API，以及独立程序集 `TIMF.Content` 提供的自定义内容 API。
+除第 12 节外，所有类型都在 `TIMF.Abstractions` 命名空间下；内容类型位于 `TIMF.Content`。
+
+TIMF 把稳定性放在功能数量之前：公开 API、内容身份和原版存档兼容性均视为框架契约。无法安全完成的
+内容激活应记录明确错误并停止该内容管线，而不是带着部分扩容或半注册状态继续运行。
 
 签名中出现的外部类型来自 `Microsoft.Xna.Framework`（`GameTime` / `Color` / `Vector2` / `Rectangle`）与 `Microsoft.Xna.Framework.Input`（`Keys`）。
 
@@ -17,6 +21,7 @@
 - [9. 注册表、会话、日志](#9-注册表会话日志)
 - [10. 天气](#10-天气)
 - [11. 前缀](#11-前缀)
+- [12. 自定义内容](#12-自定义内容)
 
 ---
 
@@ -623,6 +628,153 @@ bool TryGetRandomBestPrefix(int itemType, out int prefixId);
 ```
 
 > 一件物品**可能有多个**最佳前缀（例如饰品），每次重铸随机取其一。
+
+---
+
+## 12. 自定义内容
+
+自定义内容位于独立的 `TIMF.Content.dll` / `TIMF.Content` 命名空间。内容 mod 必须实现
+`IContentMod`，并使用 `Net = TimfNetProfile.Optional` 或 `Required`；自定义 ID 无法与纯原版端互通。
+
+### 稳定性契约
+
+以下规则属于内容 API 的稳定契约：
+
+- **内容键是持久身份。** `ModId/InternalName` 用于 ID 分配表和所有旁挂存档；运行时 `Type` 只是当前
+  进程的数值索引，mod 不应把它写入自己的长期数据。
+- **原版存档保持原版可读。** 模组物品、图块、墙壁和自定义容器 ID 不会写进 `.plr` / `.wld`；没有
+  TIMF 时原版仍可读取主体文件，只是暂时看不到旁挂内容。
+- **保存不能破坏运行中状态。** 为调用原版序列化而临时清空的物品、图块、墙壁和箱子，会在成功路径和
+  异常路径中恢复；旁挂文件使用同目录临时文件、磁盘刷新和原子替换。
+- **暂时缺少 mod 不等于删除内容。** 无法解析的内容键会保留。只有玩家在对应坐标或槽位建立了新内容时，
+  才以玩家当前修改为准并丢弃冲突的旧记录。
+- **注册顺序不应成为存档身份。** 稳定 ID 分配表按内容键保存；新增另一个 mod 或改变加载顺序不应改变
+  已发布内容的含义。
+- **公开类型是兼容边界。** `TIMF.Abstractions` 和 `TIMF.Content` 中的 public 类型及成员是 mod 作者可
+  依赖的 API；`TIMF.Core`、Harmony 补丁和反射辅助器均为实现细节，不构成兼容承诺。
+
+为了维持上述保证，发布后的 `ModId` 和 `InternalName` 不得随意更名。显示名称、提示文本和贴图路径可以
+修改，但持久内容键的迁移需要框架未来提供显式别名机制，不能靠重新分配数值 ID 代替。
+
+稳定性契约不表示任意 Terraria 版本之间的二进制补丁必然兼容。升级游戏版本时仍应先运行
+`ContentTestKit` 的数组、放置、掉落、存档和配方测试，再用备份世界验证正式存档。
+
+```csharp
+[TimfMod(Id = "MyContent", Net = TimfNetProfile.Required)]
+public sealed class MyContentMod : IContentMod
+{
+    public void AddContent(IContentRegistry registry)
+    {
+        registry.AddItem<MyPlaceableItem>();
+        registry.AddTile<MyTile>();
+        registry.AddWall<MyWall>();
+    }
+
+    // IMod 成员略
+}
+```
+
+### `TimfItem` / `TimfTile` / `TimfContainerTile` / `TimfWall`
+
+两类定义都提供稳定的 `InternalName`、`ContentKey`、运行时分配的 `Type`、`Texture` 和
+`SetStaticDefaults()`。`TimfItem.SetDefaults()` 配置每个物品实例；`TimfTile.SetStaticDefaults()`
+用于写入 `Main.tileSolid[Type]`、`Main.tileFrameImportant[Type]` 等图块集合。
+
+```csharp
+public sealed class MyTile : TimfTile
+{
+    public static int RegisteredType { get; private set; }
+
+    // 可返回原版物品 id，也可返回已经分配的自定义 TimfItem.Type。
+    // 默认值 0 表示挖掘后不掉落物品。
+    public override int ItemDrop => MyPlaceableItem.RegisteredType;
+    public override int ItemDropStack => 1;
+
+    public override void SetStaticDefaults()
+    {
+        RegisteredType = Type;
+        Main.tileSolid[Type] = true;
+        Main.tileFrameImportant[Type] = false;
+    }
+}
+```
+
+`TimfTile.ItemDrop` 和 `ItemDropStack` 通过原版 `WorldGen.KillTile_GetItemDrops` 管线生效；
+实际实体只会在单机或服务端生成，爆炸、锤击失败及 `noItem` 等原版规则仍然有效，不会额外重复掉落。
+
+物品可覆盖 `AddRecipes()`，通过 `TimfRecipe` 注册包含原版或模组物品、模组制作站的配方。该方法在
+所有内容完成 ID 分配和 `SetStaticDefaults()` 后执行，因此可以安全引用其他定义的 `RegisteredType`：
+
+```csharp
+public override void AddRecipes()
+{
+    TimfRecipe.Create(MyResult.RegisteredType, 5)
+        .AddIngredient(MyMaterial.RegisteredType, 1)
+        .AddTile(MyWorkbenchTile.RegisteredType)
+        .Register();
+}
+```
+
+当前配方 API 支持结果数量、多个物品材料和一个制作站；后注册的配方默认禁止微光分解，以免使用已经
+完成初始化的原版分解表产生不一致结果。
+
+需要锚点规则的特殊图块可通过 `PlacementTemplateTile` 复制原版 `TileObjectData`。例如自定义火把返回
+`TileID.Torches`，即可获得地面、左右侧面和背景墙锚点，同时仍使用自己的图块 ID 和贴图。
+发光图块覆盖 `ModifyLight(i, j, ref red, ref green, ref blue)`；框架会把它与原版环境光按分量取最大值。
+
+箱子类图块继承 `TimfContainerTile`。默认会复制原版 2×2 箱子的 `TileObjectData` 和放置后创建
+`Chest` 的钩子；定义仍需把运行时集合标成容器：
+
+```csharp
+public sealed class MyChestTile : TimfContainerTile
+{
+    public override int ItemDrop => MyChestItem.RegisteredType;
+
+    public override void SetStaticDefaults()
+    {
+        Main.tileFrameImportant[Type] = true;
+        Main.tileNoAttach[Type] = true;
+        Main.tileContainer[Type] = true;
+        TileID.Sets.BasicChest[Type] = true;
+    }
+}
+```
+
+框架会沿用原版 40 槽箱子 UI、重命名和“非空时禁止破坏”规则。空箱被破坏时只掉落一次
+`ItemDrop`，不会按 2×2 的四个格子重复掉落。
+
+`TimfWall` 提供与图块独立的 Wall ID、`Texture`、`ItemDrop` 和 `SetStaticDefaults()`。墙壁物品在
+`TimfItem.SetDefaults()` 中设置 `Item.createWall = MyWall.RegisteredType`。自定义墙壁贴图使用原版
+144×180 墙壁帧表布局。
+
+`IContentLookup` 可从 `context.Services` 取得，提供 `ItemType<T>()`、`TileType<T>()`、
+`GetItem()`、`GetTile()`、`GetWall()`、`RegisteredItems`、`RegisteredTiles`、`RegisteredWalls`
+和诊断用 `Report()`。
+
+### 图块与墙壁存档规则
+
+自定义图块和墙壁 ID 都不会写进 `.wld`。框架在原版世界序列化前临时移除这些内容，把完整格子状态写入
+同路径的 `<world>.wld.timf-tiles`，保存完成后立即恢复内存；加载世界并进入可玩状态后再从旁挂覆盖回来。
+移除某个内容 mod 时，其无法解析的旁挂记录会保留；如果玩家在该坐标放置了原版图块，新修改优先，
+旧旁挂记录会在下次保存时丢弃。
+
+### 物品与容器存档规则
+
+模组物品不会以运行时数值 ID 写入玩家或世界存档：
+
+- 背包、装备、染料、宠物/矿车栏、四个个人储存空间（存钱罐、保险箱、护卫熔炉、虚空保险库）和
+  装备预设写入玩家旁挂 `<player>.plr.timfitems`；
+- 原版世界箱子中的模组物品，以及整个 `TimfContainerTile` 自定义容器，写入世界旁挂
+  `<world>.wld.timf-chests`；
+- 自定义物品和容器身份均使用 `ModId/InternalName`，ID 重分配不会改变存档含义；自定义容器内的
+  原版物品仍保存原版物品 ID；
+- 写 `.wld` 时，自定义容器实体会先从 `Main.chest` 临时摘除，原版箱子里的模组物品槽会临时变成
+  空气；无论保存成功或抛出异常，运行中的原对象都会恢复；旁挂通过临时文件、磁盘刷新和原子替换提交；
+- 内容 mod 暂时缺失时，无法解析的记录会继续保留，重新安装后可恢复。若玩家在缺失内容的位置或槽位
+  建立了新内容，则玩家当前修改优先，旧记录不会覆盖它。
+
+> `InternalName` 是存档身份的一部分，发布后不要改名。图块贴图必须随 mod 部署，路径规则与物品一致，
+> 默认是 `Content/<InternalName>.png`。
 
 ---
 

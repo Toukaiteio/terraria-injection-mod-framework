@@ -4,15 +4,18 @@
     <LangVersion>latest</LangVersion>
     <Nullable>disable</Nullable>
     <PlatformTarget>x86</PlatformTarget>
-    <AssemblyName>TIMF.Core</AssemblyName>
-    <RootNamespace>TIMF.Core</RootNamespace>
-    <AllowUnsafeBlocks>false</AllowUnsafeBlocks>
+    <AssemblyName>ContentTestKit</AssemblyName>
+    <RootNamespace>ContentTestKit</RootNamespace>
   </PropertyGroup>
   <ItemGroup>
-    <ProjectReference Include="..\TIMF.Abstractions\TIMF.Abstractions.csproj" />
-    <ProjectReference Include="..\TIMF.Content\TIMF.Content.csproj" />
-  </ItemGroup>
-  <ItemGroup>
+    <Reference Include="TIMF.Abstractions">
+      <HintPath>..\..\src\TIMF.Abstractions\bin\Release\net48\TIMF.Abstractions.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="TIMF.Content">
+      <HintPath>..\..\src\TIMF.Content\bin\Release\net48\TIMF.Content.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
     <Reference Include="Terraria">
       <HintPath>$(TimfTerrariaRef)</HintPath>
       <Private>false</Private>
@@ -29,8 +32,5 @@
       <HintPath>$(TimfXnaDir)\Microsoft.Xna.Framework.Graphics.dll</HintPath>
       <Private>false</Private>
     </Reference>
-  </ItemGroup>
-  <ItemGroup>
-    <PackageReference Include="Lib.Harmony" Version="2.3.3" />
   </ItemGroup>
 </Project>

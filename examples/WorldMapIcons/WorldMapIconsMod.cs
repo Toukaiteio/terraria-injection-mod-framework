@@ -296,9 +296,6 @@ namespace WorldMapIcons
             dirty |= ui.SliderFloat(L.Get("Settings.ProjectileScale", "Projectile scale"), ref _config.ProjectileScale, 0.1f, 1.5f);
             dirty |= ui.SliderFloat(L.Get("Settings.DrawDistance", "Draw distance (tiles, -1=∞)"), ref _config.DrawDistance, -1f, 500f);
 
-            ui.Spacing();
-            ui.TextColored(L.Get("Settings.Hint", "Open the map (fullscreen or minimap) to see icons."), new Color(160, 200, 255));
-
             if (dirty)
                 SaveConfig();
         }

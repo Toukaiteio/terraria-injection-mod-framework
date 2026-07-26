@@ -21,6 +21,7 @@ namespace AutoAim
         private IModContext _ctx;
         private AutoAimConfig _config;
         private LineOfSight _los;
+        private WeaponWallPolicy _weaponWalls;
         private IPlayerUpdateHookRegistry _hookRegistry;
         private const string ToggleId = "AutoAim.Toggle";
         private IKeybind _toggle;
@@ -40,6 +41,7 @@ namespace AutoAim
             _config = AutoAimConfig.LoadOrCreate(cfgPath);
             var defaultKey = ParseKey(_config.ToggleKey, Keys.OemTilde);
             _los = new LineOfSight(context.Log);
+            _weaponWalls = new WeaponWallPolicy(context.Log);
 
             _keybinds = context.Client != null ? context.Client.Keybinds : null;
             if (_keybinds != null)
@@ -66,6 +68,7 @@ namespace AutoAim
             _keybinds = null;
             _toggle = null;
             _los = null;
+            _weaponWalls = null;
             _ctx = null;
         }
 
@@ -171,6 +174,11 @@ namespace AutoAim
             var best = -1;
             var bestDistSq = float.MaxValue;
 
+            // Resolve once per scan (not per NPC).
+            var ignoreLos =
+                _config.IgnoreWalls
+                || (_weaponWalls != null && _weaponWalls.HeldWeaponPassesThroughWalls(player));
+
             var maxN = Math.Min(npcs.Length, Main.maxNPCs > 0 ? Main.maxNPCs : npcs.Length);
             for (var i = 0; i < maxN; i++)
             {
@@ -187,20 +195,62 @@ namespace AutoAim
                 if (distSq > rangeSq || distSq >= bestDistSq)
                     continue;
 
-                if (!_config.IgnoreWalls)
-                {
-                    var ok = _los.CanReach(
-                        player.position, player.width, player.height,
-                        npc.position, npc.width, npc.height);
-                    if (!ok)
-                        continue;
-                }
+                // Wall policy (strict):
+                // - IgnoreWalls config → no LOS
+                // - projectile-primary weapon with tileCollide==false → no LOS
+                // - wall-phasing NPC (noTileCollide) → no LOS (vanilla melee rule)
+                // - else require Collision.CanHit
+                // Note: contact-melee swing projs often have tileCollide=false; those do NOT
+                // set ignoreLos (see WeaponWallPolicy) so normal enemies still need LOS.
+                if (!HasLineOfSightOrThroughWalls(player, npc, ignoreLos))
+                    continue;
 
                 best = i;
                 bestDistSq = distSq;
             }
 
             return best;
+        }
+
+        /// <summary>
+        /// True if we may aim at this NPC under the current wall / weapon policy.
+        /// </summary>
+        private bool HasLineOfSightOrThroughWalls(Player player, NPC npc, bool ignoreLosForWeaponOrConfig)
+        {
+            if (ignoreLosForWeaponOrConfig)
+                return true;
+
+            // Vanilla ItemCheck melee paths: (npc.noTileCollide || Collision.CanHit(...)).
+            if (CanEngageThroughWalls(npc))
+                return true;
+
+            if (_los == null)
+                return true;
+
+            return _los.CanReach(
+                player.position, player.width, player.height,
+                npc.position, npc.width, npc.height);
+        }
+
+        /// <summary>
+        /// NPCs that do not collide with tiles are normally hittable without open LOS
+        /// (vanilla uses the same exception for melee / several hit checks).
+        /// </summary>
+        private static bool CanEngageThroughWalls(NPC npc)
+        {
+            if (npc == null)
+                return false;
+            try
+            {
+                if (npc.noTileCollide)
+                    return true;
+            }
+            catch
+            {
+                // Field missing on unexpected builds — fall through to LOS.
+            }
+
+            return false;
         }
 
         private bool MatchesCategory(NPC npc)
@@ -247,18 +297,15 @@ namespace AutoAim
             dirty |= ui.Checkbox(L.Get("Settings.TownNpcs", "Town NPCs"), ref _config.TargetTownNpcs);
             ui.Separator();
 
-            dirty |= ui.Checkbox(L.Get("Settings.IgnoreWalls", "Ignore walls (line of sight)"), ref _config.IgnoreWalls);
+            dirty |= ui.Checkbox(
+                L.Get("Settings.IgnoreWalls", "Ignore walls for all targets"),
+                ref _config.IgnoreWalls);
             dirty |= ui.SliderFloat(L.Get("Settings.Range", "Range"), ref _config.Range, 100f, 2000f);
 
-            ui.Spacing();
             var bind = _toggle != null && !string.IsNullOrEmpty(_toggle.CurrentBindingDisplay)
                 ? _toggle.CurrentBindingDisplay
                 : L.Get("Settings.Unbound", "(unbound)");
             ui.Text(L.Format("Settings.Toggle", bind));
-            if (_currentTargetNpc >= 0 && _config.Enabled)
-                ui.TextColored(L.Format("Settings.CurrentTarget", _currentTargetNpc), new Color(255, 220, 150));
-            else if (_config.Enabled)
-                ui.TextColored(L.Get("Settings.NoTarget", "No target in range"), new Color(150, 150, 150));
 
             if (dirty)
                 SaveConfig();

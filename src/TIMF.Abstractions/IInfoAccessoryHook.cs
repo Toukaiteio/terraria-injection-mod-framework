@@ -6,7 +6,7 @@ namespace TIMF.Abstractions
     /// The player is passed as <see cref="object"/> so this assembly stays free of Terraria;
     /// cast to Terraria.Player inside your hook.
     /// </summary>
-    [TimfHook(TimfHookKind.Client)]
+    [TimfHook(TimfSide.Client)]
     public interface IInfoAccessoryHook
     {
         /// <summary>

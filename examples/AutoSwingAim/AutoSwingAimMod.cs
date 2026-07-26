@@ -264,17 +264,9 @@ namespace AutoSwingAim
             var dirty = false;
             var L = _ctx.L;
 
-            ui.Text(L.Get("Settings.Title", "Improves facing under vanilla Auto-swing-all."));
-            ui.TextColored(L.Get("Settings.Hint1", "Root cause: auto-reuse only re-triggers attacks; classic melee (useStyle 1)"), new Color(160, 200, 255));
-            ui.TextColored(L.Get("Settings.Hint2", "never re-faces the mouse mid-hold. Whips use the shoot path so they already do."), new Color(160, 200, 255));
-            ui.Separator();
-
             dirty |= ui.Checkbox(L.Get("Settings.Enabled", "Enabled"), ref _config.Enabled);
             dirty |= ui.Checkbox(L.Get("Settings.ContinuousTurn", "Continuous turn (follow mouse mid-swing)"), ref _config.ContinuousTurn);
             dirty |= ui.Checkbox(L.Get("Settings.AllowMoveTurn", "Allow A/D turn while swinging (useTurn)"), ref _config.AllowMoveTurnWhileSwinging);
-
-            ui.Spacing();
-            ui.TextColored(L.Get("Settings.OnlyWhenAutoSwing", "Only active while Settings → Auto swing for all weapons is on."), new Color(150, 150, 150));
 
             if (dirty)
                 SaveConfig();

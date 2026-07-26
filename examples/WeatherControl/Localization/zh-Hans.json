@@ -1,0 +1,15 @@
+{
+  "Settings.Enabled": "启用",
+  "Settings.Hold": "保持天气（阻止原版随机改写）",
+  "Settings.PresetHeader": "预设",
+  "Settings.WindSpeed": "风力",
+  "Settings.MoonPhase": "月相 0–7",
+  "Settings.BloodMoon": "血月",
+  "Settings.PumpkinMoon": "南瓜月",
+  "Settings.FrostMoon": "霜月",
+  "Settings.LanternNight": "灯笼夜",
+  "Settings.ApplyNow": "应用",
+  "Settings.ClearNow": "放晴",
+  "Chat.Applied": "天气：",
+  "Chat.NotActive": "请先进入单机/主机。"
+}

@@ -52,7 +52,7 @@ namespace TIMF.Abstractions
     /// Client-only map overlay hook. Register via <see cref="IClientServices.MapOverlay"/>.
     /// Runs inside the open vanilla SpriteBatch — do not Begin/End.
     /// </summary>
-    [TimfHook(TimfHookKind.Client)]
+    [TimfHook(TimfSide.Client)]
     public interface IMapOverlayHook
     {
         void OnDrawMap(MapOverlayInfo info, ref string hoverText);

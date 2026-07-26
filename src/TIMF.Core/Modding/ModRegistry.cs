@@ -10,6 +10,7 @@ namespace TIMF.Core.Modding
             string name,
             string version,
             TimfSide side,
+            TimfNetProfile netProfile,
             bool isEnabled,
             bool isLoaded,
             bool serverLogicActive,
@@ -19,6 +20,7 @@ namespace TIMF.Core.Modding
             Name = name;
             Version = version;
             Side = side;
+            NetProfile = netProfile;
             IsEnabled = isEnabled;
             IsLoaded = isLoaded;
             ServerLogicActive = serverLogicActive;
@@ -29,6 +31,7 @@ namespace TIMF.Core.Modding
         public string Name { get; }
         public string Version { get; }
         public TimfSide Side { get; }
+        public TimfNetProfile NetProfile { get; }
         public bool IsEnabled { get; }
         public bool IsLoaded { get; }
         public bool ServerLogicActive { get; }

@@ -27,9 +27,10 @@ namespace TIMF.Abstractions
         public string LoadAfter { get; set; }
 
         /// <summary>
-        /// Explicit side override. When set, must be consistent with capability interfaces
-        /// (<see cref="IClientMod"/> / <see cref="IAuthorityMod"/> / <see cref="IVanillaPlugin"/>).
-        /// When left unset, the loader infers side from those interfaces.
+        /// Optional assertion of the capability side. When set it must match exactly what the
+        /// capability interfaces (<see cref="IClientMod"/> / <see cref="IAuthorityMod"/>) imply —
+        /// it documents intent and fails the load on drift, it does not override inference.
+        /// Leave unset to just infer.
         /// </summary>
         public TimfSide Side
         {
@@ -45,10 +46,12 @@ namespace TIMF.Abstractions
         public bool SideSpecified { get; private set; }
 
         /// <summary>
-        /// When side is Server or Both: host requires joining clients to have this mod.
-        /// Ignored (always false) for Plugin / <see cref="IVanillaPlugin"/>.
-        /// Default true for handshake server mods.
+        /// Whether joining peers need matching code. Orthogonal to <see cref="Side"/>.
+        ///
+        /// Defaults to <see cref="TimfNetProfile.Vanilla"/>: a mod stays vanilla-join
+        /// compatible unless it explicitly opts into the handshake. Requires an
+        /// <see cref="TimfSide.Authority"/> half to be anything else.
         /// </summary>
-        public bool RequiredOnJoin { get; set; } = true;
+        public TimfNetProfile Net { get; set; } = TimfNetProfile.Vanilla;
     }
 }

@@ -1,6 +1,4 @@
 using System;
-using System.Collections.Generic;
-using Terraria;
 using TIMF.Abstractions;
 
 namespace TIMF.Core.Hooks
@@ -9,58 +7,16 @@ namespace TIMF.Core.Hooks
     /// Holds all registered player-update hooks and dispatches them once per local-player tick.
     /// Registered into the service registry as <see cref="IPlayerUpdateHookRegistry"/>.
     /// </summary>
-    internal sealed class PlayerUpdateHookRegistry : IPlayerUpdateHookRegistry
+    internal sealed class PlayerUpdateHookRegistry
+        : HookRegistryBase<IPlayerUpdateHook>, IPlayerUpdateHookRegistry
     {
-        private readonly ILogger _log;
-        private readonly List<IPlayerUpdateHook> _hooks = new List<IPlayerUpdateHook>();
-        private readonly object _lock = new object();
-
-        public PlayerUpdateHookRegistry(ILogger log)
-        {
-            _log = log;
-        }
-
-        public void Add(IPlayerUpdateHook hook)
-        {
-            if (hook == null)
-                return;
-            if (IsDedicatedServer())
-            {
-                _log.Error("IPlayerUpdateHook.Add rejected: client hook cannot register on dedicated server");
-                return;
-            }
-            lock (_lock)
-            {
-                if (!_hooks.Contains(hook))
-                    _hooks.Add(hook);
-            }
-        }
-
-        private static bool IsDedicatedServer()
-        {
-            try { return Main.dedServ; }
-            catch { return false; }
-        }
-
-        public void Remove(IPlayerUpdateHook hook)
-        {
-            if (hook == null)
-                return;
-            lock (_lock)
-            {
-                _hooks.Remove(hook);
-            }
-        }
+        public PlayerUpdateHookRegistry(ILogger log) : base(log) { }
 
         public void Dispatch()
         {
-            IPlayerUpdateHook[] snapshot;
-            lock (_lock)
-            {
-                if (_hooks.Count == 0)
-                    return;
-                snapshot = _hooks.ToArray();
-            }
+            var snapshot = Snapshot();
+            if (snapshot == null)
+                return;
 
             for (var i = 0; i < snapshot.Length; i++)
             {
@@ -70,7 +26,7 @@ namespace TIMF.Core.Hooks
                 }
                 catch (Exception ex)
                 {
-                    _log.Error("IPlayerUpdateHook.OnPreUpdate failed", ex);
+                    Report("OnPreUpdate", ex);
                 }
             }
         }

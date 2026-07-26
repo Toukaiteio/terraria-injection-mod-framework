@@ -7,8 +7,7 @@ using TIMF.Abstractions;
 namespace ModSettingsHub
 {
     /// <summary>
-    /// Central settings window: lists all TIMF mods (with side / enable state) and opens a
-    /// floating settings page for the selected mod (mods that implement <see cref="IModSettings"/>).
+    /// Compact mod table-of-contents: list + enable + open settings page.
     /// </summary>
     [TimfMod(Id = "ModSettingsHub", Side = TimfSide.Client)]
     [TimfDependsOn("TIMF.UI", MinVersion = "1.0.0")]
@@ -28,7 +27,7 @@ namespace ModSettingsHub
         private string _statusLine;
 
         public string Name => "Mod Settings";
-        public string Version => "1.1.0";
+        public string Version => "1.1.2";
 
         public void Load(IModContext context)
         {
@@ -43,7 +42,7 @@ namespace ModSettingsHub
             else
                 context.Log.Error("IKeybindService unavailable — ModSettingsHub toggle will not work");
 
-            context.Log.Info("ModSettingsHub loaded. Toggle keybind=" + ToggleId + " default=F9");
+            context.Log.Info("ModSettingsHub loaded. Toggle=" + ToggleId + " default=F9");
         }
 
         public void Unload()
@@ -63,9 +62,7 @@ namespace ModSettingsHub
 
             try
             {
-                // Always re-resolve registry — Core may rebuild it after enable/disable.
                 _ctx.Services.TryGetService(out _registry);
-
                 HandleToggle();
                 MaybeAnnounce();
 
@@ -89,16 +86,12 @@ namespace ModSettingsHub
             var mods = _registry != null ? _registry.Mods : null;
             if (mods == null || mods.Count == 0)
             {
-                _ui.TextColored(_ctx.L.Get("UI.NoMods", "No mods registered yet."), new Color(200, 180, 120));
+                _ui.TextColored(_ctx.L.Get("UI.NoMods", "No mods."), new Color(200, 180, 120));
                 return;
             }
 
-            _ui.TextColored(_ctx.L.Format("UI.LoadedMods", mods.Count), new Color(160, 200, 255));
-            _ui.Text(_ctx.L.Get("UI.SelectHint", "Select a mod. Toggle Enabled to load/unload. Server mods are marked."));
-            _ui.Separator();
-
             IModInfo selected = null;
-            if (_ui.BeginChild("modlist", 240f))
+            if (_ui.BeginChild("modlist", 280f))
             {
                 for (var i = 0; i < mods.Count; i++)
                 {
@@ -149,30 +142,20 @@ namespace ModSettingsHub
             if (selected == null)
                 return;
 
-            _ui.Spacing(8f);
+            _ui.Spacing(6f);
             _ui.Separator();
-
             DrawSelectedDetails(selected);
 
             if (!string.IsNullOrEmpty(_statusLine))
             {
-                _ui.Spacing(4f);
+                _ui.Spacing(2f);
                 _ui.TextColored(_statusLine, new Color(200, 220, 160));
             }
         }
 
         private void DrawSelectedDetails(IModInfo selected)
         {
-            _ui.TextColored(selected.Name + "  v" + selected.Version, new Color(255, 230, 160));
-            _ui.TextColored(FormatSideLine(selected), SideColor(selected.Side));
-
-            if (selected.Side == TimfSide.Server || selected.Side == TimfSide.Both)
-            {
-                _ui.TextColored(
-                    _ctx.L.Get("UI.ServerWarn",
-                        "Server-side: inactive on pure vanilla joins; hosting may kick vanilla clients if RequiredOnJoin."),
-                    new Color(255, 160, 80));
-            }
+            _ui.Text(selected.Name + "  v" + selected.Version);
 
             var enabled = selected.IsEnabled;
             var canToggle = !IsProtected(selected.Id);
@@ -184,51 +167,28 @@ namespace ModSettingsHub
                     if (_registry != null && _registry.TrySetEnabled(selected.Id, enabled, out msg))
                     {
                         _statusLine = msg;
-                        // Registry was rebuilt — refresh selection snapshot next frame.
                         _ctx.Services.TryGetService(out _registry);
                         selected = FindSelected() ?? selected;
                     }
                     else
                     {
-                        _statusLine = msg ?? "Failed to change enable state.";
+                        _statusLine = msg ?? "Failed.";
                     }
                 }
             }
             else
             {
-                _ui.TextColored(_ctx.L.Get("UI.Protected", "Framework library — always enabled."), new Color(150, 150, 150));
+                _ui.TextColored(_ctx.L.Get("UI.Protected", "Always on"), new Color(150, 150, 150));
             }
 
-            _ui.TextColored(
-                selected.IsLoaded
-                    ? _ctx.L.Get("UI.StateLoaded", "State: loaded")
-                    : _ctx.L.Get("UI.StateNotLoaded", "State: not loaded"),
-                selected.IsLoaded ? new Color(140, 220, 140) : new Color(160, 160, 160));
-
-            if (selected.Side == TimfSide.Server || selected.Side == TimfSide.Both)
-            {
-                _ui.TextColored(
-                    selected.ServerLogicActive
-                        ? _ctx.L.Get("UI.ServerActive", "Server logic: ACTIVE this session")
-                        : _ctx.L.Get("UI.ServerInactive", "Server logic: inactive this session"),
-                    selected.ServerLogicActive ? new Color(255, 140, 80) : new Color(150, 150, 150));
-            }
-
-            _ui.Spacing(4f);
             if (selected.HasSettings && selected.IsLoaded)
             {
-                _settingsTitle = selected.Name;
-                _ui.TextColored(_ctx.L.Format("UI.SettingsFor", selected.Name), new Color(255, 220, 150));
-                if (!_settingsOpen && _ui.Button(_ctx.L.Get("UI.OpenSettings", "Open settings")))
+                if (!_settingsOpen && _ui.Button(_ctx.L.Get("UI.OpenSettings", "Settings")))
                     _settingsOpen = true;
             }
             else if (!selected.IsLoaded)
             {
-                _ui.TextColored(_ctx.L.Get("UI.EnableForSettings", "Enable and load the mod to open settings."), new Color(150, 150, 150));
-            }
-            else
-            {
-                _ui.TextColored(_ctx.L.Get("UI.NoSettings", "This mod has no settings UI."), new Color(150, 150, 150));
+                _ui.TextColored(_ctx.L.Get("UI.EnableForSettings", "Enable to open settings."), new Color(150, 150, 150));
             }
         }
 
@@ -239,44 +199,30 @@ namespace ModSettingsHub
 
         private string FormatListLabel(IModInfo m)
         {
-            var side = SideTag(m.Side);
+            // Side tags: whether join clients need TIMF handshake.
+            // [C]/[P] = no handshake (vanilla clients OK) · [S]/[B] = clients need TIMF
+            var side = SideTag(m);
             var en = m.IsEnabled ? "" : _ctx.L.Get("UI.TagOff", " [OFF]");
-            var cfg = m.HasSettings && m.IsLoaded ? " [cfg]" : "";
-            var srv = m.ServerLogicActive ? _ctx.L.Get("UI.TagSrvOn", " [SRV]") : "";
-            return side + " " + m.Name + "  v" + m.Version + en + srv + cfg;
+            var srv = m.ServerLogicActive ? _ctx.L.Get("UI.TagActive", " *") : "";
+            return side + " " + m.Name + en + srv;
         }
 
-        private static string SideTag(TimfSide side)
+        /// <summary>
+        /// Derives the tag from the two orthogonal axes rather than switching on the side value.
+        /// Capability decides C vs S/B; the handshake question is purely <see cref="TimfNetProfile"/>.
+        /// </summary>
+        private string SideTag(IModInfo m)
         {
-            switch (side)
-            {
-                case TimfSide.Server: return "[S]";
-                case TimfSide.Both: return "[B]";
-                default: return "[C]";
-            }
-        }
+            if (!TimfSides.IsAuthorityCapable(m.Side))
+                return _ctx.L.Get("UI.TagClient", "[C]");
 
-        private string FormatSideLine(IModInfo m)
-        {
-            switch (m.Side)
-            {
-                case TimfSide.Server:
-                    return _ctx.L.Get("UI.SideServer", "Side: Server (authoritative / host path)");
-                case TimfSide.Both:
-                    return _ctx.L.Get("UI.SideBoth", "Side: Both (client + server path)");
-                default:
-                    return _ctx.L.Get("UI.SideClient", "Side: Client");
-            }
-        }
+            // Vanilla-safe authority: host stays joinable by pure vanilla clients.
+            if (TimfNetProfiles.IsVanillaHostCompatible(m.NetProfile))
+                return _ctx.L.Get("UI.TagPlugin", "[P]");
 
-        private static Color SideColor(TimfSide side)
-        {
-            switch (side)
-            {
-                case TimfSide.Server: return new Color(255, 140, 100);
-                case TimfSide.Both: return new Color(220, 180, 255);
-                default: return new Color(160, 200, 255);
-            }
+            return TimfSides.IsClientCapable(m.Side)
+                ? _ctx.L.Get("UI.TagBoth", "[B]")
+                : _ctx.L.Get("UI.TagServer", "[S]");
         }
 
         private void DrawSettingsWindow()
@@ -300,7 +246,7 @@ namespace ModSettingsHub
                 }
                 catch (Exception ex)
                 {
-                    _ui.TextColored("Settings page error (see log)", new Color(255, 120, 120));
+                    _ui.TextColored("Settings error (see log)", new Color(255, 120, 120));
                     _ctx.Log.Error("BuildSettingsUI threw for " + selected.Id, ex);
                 }
             }
@@ -332,14 +278,6 @@ namespace ModSettingsHub
                 return;
 
             _windowOpen = !_windowOpen;
-            var bind = !string.IsNullOrEmpty(_toggle.CurrentBindingDisplay) ? _toggle.CurrentBindingDisplay : "Toggle";
-            try
-            {
-                Main.NewText(
-                    _windowOpen ? _ctx.L.Format("Chat.Open", bind) : _ctx.L.Format("Chat.Closed", bind),
-                    180, 200, 255);
-            }
-            catch { /* ignore */ }
         }
 
         private bool IsGameFocused()
@@ -368,7 +306,10 @@ namespace ModSettingsHub
             _announcePending = false;
             try
             {
-                Main.NewText(_ctx.L.Format("Chat.Ready", _toggle != null && !string.IsNullOrEmpty(_toggle.CurrentBindingDisplay) ? _toggle.CurrentBindingDisplay : "Toggle"), 180, 200, 255);
+                var key = _toggle != null && !string.IsNullOrEmpty(_toggle.CurrentBindingDisplay)
+                    ? _toggle.CurrentBindingDisplay
+                    : "F9";
+                Main.NewText(_ctx.L.Format("Chat.Ready", key), 180, 200, 255);
             }
             catch { /* ignore */ }
         }

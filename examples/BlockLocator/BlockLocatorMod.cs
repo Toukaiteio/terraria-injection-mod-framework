@@ -330,17 +330,10 @@ namespace BlockLocator
             dirty |= ui.SliderFloat(L.Get("Settings.ArrowSize", "Arrow size"), ref _config.ArrowSize, 0.4f, 3f);
             dirty |= ui.Checkbox(L.Get("Settings.HideOnScreen", "Hide when on screen"), ref _config.HideWhenOnScreen);
 
-            ui.Spacing();
             var bind = _toggle != null && !string.IsNullOrEmpty(_toggle.CurrentBindingDisplay)
                 ? _toggle.CurrentBindingDisplay
                 : L.Get("Settings.Unbound", "(unbound)");
             ui.Text(L.Format("Settings.Toggle", bind));
-            ui.TextColored(
-                _hasTarget
-                    ? L.Format("Settings.Nearest", (int)_targetDist)
-                    : L.Get("Settings.NoTarget", "No target in range"),
-                _hasTarget ? new Color(120, 230, 140) : new Color(150, 150, 150));
-            ui.Text(L.Get("Settings.CommonIds", "Common ids: 21=Chest, 7=Copper ore, 6=Iron, 8=Gold, 12=Heart Crystal"));
 
             if (dirty)
                 SaveConfig();

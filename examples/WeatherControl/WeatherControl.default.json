@@ -1,0 +1,14 @@
+{
+  "Enabled": true,
+  "LockWeather": false,
+  "Preset": 0,
+  "MoonPhase": 0,
+  "ApplyMoonPhase": false,
+  "WindSpeed": 0,
+  "ApplyWind": false,
+  "BloodMoon": false,
+  "PumpkinMoon": false,
+  "FrostMoon": false,
+  "LanternNight": false,
+  "ApplySpecialEvents": false
+}

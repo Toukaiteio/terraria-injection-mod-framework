@@ -6,7 +6,9 @@ using System.Reflection;
 using System.Text;
 using TIMF.Abstractions;
 using TIMF.Core.Localization;
+using TIMF.Core.Prefix;
 using TIMF.Core.Session;
+using TIMF.Core.Weather;
 
 namespace TIMF.Core.Modding
 {
@@ -23,7 +25,9 @@ namespace TIMF.Core.Modding
         private readonly HashSet<string> _activeServerIds =
             new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         private readonly ModEnablementStore _enablement;
-        private readonly AuthorityServices _authorityServices = new AuthorityServices();
+        private readonly WeatherService _weatherService;
+        private readonly PrefixService _prefixService;
+        private readonly AuthorityServices _authorityServices;
         private IClientServices _clientServices;
         private LanguageService _language;
         private bool _isDedicated;
@@ -35,12 +39,14 @@ namespace TIMF.Core.Modding
         public LanguageService Language => _language;
         public ServerModCatalog ServerCatalog => _serverCatalog;
         public IAuthorityServices AuthorityServices => _authorityServices;
+        public IWeatherService Weather => _weatherService;
+        public IPrefixService Prefix => _prefixService;
         public IClientServices ClientServices => _clientServices;
 
-        /// <summary>True when any handshake-visible Server/Both mod is enabled (arms TIMF net protocol).</summary>
+        /// <summary>True when any handshake-profile mod is enabled (arms the TIMF net protocol).</summary>
         public bool HasLocalServerSideMods => _serverCatalog.HasAny;
 
-        /// <summary>True when any Server/Both/Plugin is enabled (may need host authority activation).</summary>
+        /// <summary>True when any authority-capable mod is enabled (may need host authority activation).</summary>
         public bool HasLocalServerAuthorityMods
         {
             get
@@ -67,7 +73,12 @@ namespace TIMF.Core.Modding
 
             _enablement = new ModEnablementStore(_log, _configDir);
             _language = new LanguageService(_log);
+            _weatherService = new WeatherService(_log);
+            _prefixService = new PrefixService();
+            _authorityServices = new AuthorityServices(_weatherService, _prefixService);
             _services.Register<ILanguageService>(_language);
+            _services.Register<IWeatherService>(_weatherService);
+            _services.Register<IPrefixService>(_prefixService);
             _services.Register<IAuthorityServices>(_authorityServices);
         }
 
@@ -206,12 +217,12 @@ namespace TIMF.Core.Modding
 
                 if (d.IsDeferredServerAuthority)
                 {
-                    _log.Info("Deferred " + d.Side + " mod: " + d.Id + " v" + d.Version
-                              + (d.Side == TimfSide.Plugin ? " (vanilla-compatible plugin)" : ""));
+                    _log.Info("Deferred authority mod: " + d.Id + " v" + d.Version
+                              + " [" + d.Side + "/" + d.NetProfile + "]");
                     continue;
                 }
 
-                if (_isDedicated && d.Side == TimfSide.Client)
+                if (_isDedicated && !TimfSides.IsAuthorityCapable(d.Side))
                 {
                     _log.Info("Skipping client-only mod on dedicated server: " + d.Id);
                     continue;
@@ -225,7 +236,7 @@ namespace TIMF.Core.Modding
                 }
             }
 
-            // Handshake catalog: enabled Server/Both only (Plugin excluded — vanilla-safe).
+            // Handshake catalog: Optional/Required profiles only (Vanilla excluded by definition).
             _serverCatalog.Rebuild(_descriptors.Where(d => d.UserEnabled));
 
             var failed = _descriptors.Where(x => x.FailReason != null).ToList();
@@ -275,7 +286,7 @@ namespace TIMF.Core.Modding
                 }
                 if (!d.ParticipatesInServer)
                 {
-                    _log.Warn("ActivateServerMods: " + id + " is not Server/Both/Plugin");
+                    _log.Warn("ActivateServerMods: " + id + " has no authority half");
                     continue;
                 }
                 wanted.Add(d);
@@ -303,45 +314,25 @@ namespace TIMF.Core.Modding
 
                 try
                 {
-                    if (d.IsDeferredServerAuthority)
+                    // Authority-only mods are deferred, so this is where they load (and they
+                    // unload again on deactivate). Mods with a client half are already loaded
+                    // and this only brings up their authority path.
+                    if (!d.Loaded)
+                        LoadOne(d);
+
+                    d.ServerActive = true;
+                    _activeServerIds.Add(d.Id);
+                    newlyActivated++;
+
+                    var lifecycle = d.Instance as IAuthorityLifecycle;
+                    if (lifecycle != null && d.Context != null)
                     {
-                        // Server + Plugin: Load on activate, unload on deactivate.
-                        if (!d.Loaded)
-                            LoadOne(d);
-                        d.ServerActive = true;
-                        _activeServerIds.Add(d.Id);
-                        newlyActivated++;
-
-                        var sm = d.Instance as IServerMod;
-                        if (sm != null && d.Context != null)
-                        {
-                            try { sm.OnServerActivate(d.Context); }
-                            catch (Exception ex) { _log.Error("OnServerActivate failed for " + d.Id, ex); }
-                        }
-                        _log.Info((d.Side == TimfSide.Plugin ? "Plugin" : "Server mod")
-                                  + " activated (Load): " + d.Id);
+                        try { lifecycle.OnAuthorityActivate(d.Context); }
+                        catch (Exception ex) { _log.Error("OnAuthorityActivate failed for " + d.Id, ex); }
                     }
-                    else if (d.Side == TimfSide.Both)
-                    {
-                        if (!d.Loaded)
-                            LoadOne(d);
 
-                        d.ServerActive = true;
-                        _activeServerIds.Add(d.Id);
-                        newlyActivated++;
-
-                        var sm = d.Instance as IServerMod;
-                        if (sm != null && d.Context != null)
-                        {
-                            try { sm.OnServerActivate(d.Context); }
-                            catch (Exception ex) { _log.Error("OnServerActivate failed for " + d.Id, ex); }
-                        }
-                        else
-                        {
-                            _log.Debug("Both-side mod " + d.Id + " has no IServerMod; marked server-active only");
-                        }
-                        _log.Info("Server path activated (Both): " + d.Id);
-                    }
+                    _log.Info("Authority path activated: " + d.Id
+                              + " [" + d.Side + "/" + d.NetProfile + "]");
                 }
                 catch (Exception ex)
                 {
@@ -357,8 +348,8 @@ namespace TIMF.Core.Modding
 
         public void ActivateAllLocalServerMods()
         {
-            // Host/SP/dedicated: activate every enabled Server + Both + Plugin.
-            // Plugins are not in the handshake catalog but still need host authority.
+            // Host/SP/dedicated: activate every enabled authority-capable mod, whatever its net profile.
+            // Vanilla-profile mods are not in the handshake catalog but still need host authority.
             var ids = _descriptors
                 .Where(d => d != null
                             && d.FailReason == null
@@ -472,7 +463,7 @@ namespace TIMF.Core.Modding
             {
                 if (!d.IsDeferredServerAuthority)
                 {
-                    if (_isDedicated && d.Side == TimfSide.Client)
+                    if (_isDedicated && !TimfSides.IsAuthorityCapable(d.Side))
                     {
                         message = d.Id + " enabled, but client-only mods do not load on dedicated servers.";
                     }
@@ -486,26 +477,22 @@ namespace TIMF.Core.Modding
                         message = d.Id + " enabled.";
                     }
                 }
-                else if (d.Side == TimfSide.Plugin)
-                {
-                    message = d.Id + " enabled (plugin — vanilla-compatible host authority).";
-                }
                 else
                 {
-                    message = d.Id + " enabled (server-only).";
+                    message = d.Id + " enabled (authority-only — loads when the session grants authority).";
                 }
 
                 // If we are already in a host-like session, activate server path now.
                 if (d.ParticipatesInServer && ShouldActivateServerNow())
                 {
                     ActivateServerMods(new[] { d.Id });
-                    message += " Server path activated for current session.";
+                    message += " Authority path activated for current session.";
                 }
-                else if (d.Side == TimfSide.Server)
+                else if (d.ParticipatesInHandshake)
                 {
                     message += " Activates in SP / host / dedicated / TIMF handshake.";
                 }
-                else if (d.Side == TimfSide.Plugin)
+                else if (TimfSides.IsAuthorityCapable(d.Side))
                 {
                     message += " Activates in SP / host / dedicated only (never on join clients).";
                 }
@@ -543,11 +530,11 @@ namespace TIMF.Core.Modding
             if (d == null || !d.ServerActive)
                 return;
 
-            var sm = d.Instance as IServerMod;
-            if (sm != null)
+            var lifecycle = d.Instance as IAuthorityLifecycle;
+            if (lifecycle != null)
             {
-                try { sm.OnServerDeactivate(); }
-                catch (Exception ex) { _log.Error("OnServerDeactivate failed for " + d.Id, ex); }
+                try { lifecycle.OnAuthorityDeactivate(); }
+                catch (Exception ex) { _log.Error("OnAuthorityDeactivate failed for " + d.Id, ex); }
             }
 
             if (d.IsDeferredServerAuthority && d.Loaded && d.Instance != null)
@@ -555,8 +542,7 @@ namespace TIMF.Core.Modding
 
             d.ServerActive = false;
             _activeServerIds.Remove(d.Id);
-            _log.Info((d.Side == TimfSide.Plugin ? "Plugin" : "Server mod")
-                      + " deactivated: " + d.Id);
+            _log.Info("Authority path deactivated: " + d.Id);
         }
 
         private void UnloadOne(ModDescriptor d)
@@ -599,9 +585,9 @@ namespace TIMF.Core.Modding
             {
                 if (d == null || !d.ServerActive)
                     continue;
-                if (d.Side == TimfSide.Plugin)
+                if (TimfNetProfiles.IsVanillaHostCompatible(d.NetProfile))
                     hasPlugin = true;
-                else if (d.ParticipatesInHandshake && d.RequiredOnJoin)
+                else if (d.RequiredOnJoin)
                     hasRequired = true;
             }
 
@@ -609,12 +595,12 @@ namespace TIMF.Core.Modding
                 "TIMF server-authority mods are active (" + names + "). ";
             if (hasPlugin && !hasRequired)
             {
-                msg += "Plugin-only host remains vanilla-join compatible (no TIMF handshake required). ";
+                msg += "All active authority mods are vanilla-profile; the host stays joinable by pure vanilla clients. ";
             }
             else
             {
-                msg += "Joining a pure vanilla server will not enable Server/Both mods. "
-                       + "Hosting with RequiredOnJoin Server/Both mods will reject pure vanilla clients. ";
+                msg += "Joining a pure vanilla server will not enable handshake-profile mods. "
+                       + "Hosting with Net=Required mods will reject pure vanilla clients. ";
             }
             msg += "Manage enablement in Mod Settings (F9).";
 
@@ -649,6 +635,7 @@ namespace TIMF.Core.Modding
                     name ?? d.Id,
                     ver ?? "0.0.0",
                     d.Side,
+                    d.NetProfile,
                     d.UserEnabled,
                     d.Loaded,
                     d.ServerActive,

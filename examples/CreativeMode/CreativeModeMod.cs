@@ -297,7 +297,7 @@ namespace CreativeMode
 
         public void BuildSettingsUI(IImmediateModeUi ui)
         {
-            ui.Text(_ctx.L.Get("Settings.Title", "Item browser with search + give."));
+
             ui.Text(_ctx.L.Format("Settings.Toggle", _toggle != null && !string.IsNullOrEmpty(_toggle.CurrentBindingDisplay) ? _toggle.CurrentBindingDisplay : _ctx.L.Get("Settings.Unbound", "(unbound)")));
             ui.Spacing();
             if (ui.Button(_windowOpen ? "Close browser" : "Open browser"))

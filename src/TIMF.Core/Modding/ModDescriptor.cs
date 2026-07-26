@@ -21,7 +21,10 @@ namespace TIMF.Core.Modding
         public string Id { get; set; }
         public string Version { get; set; }
         public TimfSide Side { get; set; } = TimfSide.Client;
-        public bool RequiredOnJoin { get; set; } = true;
+
+        /// <summary>Protocol axis — orthogonal to <see cref="Side"/>. See <see cref="TimfNetProfile"/>.</summary>
+        public TimfNetProfile NetProfile { get; set; } = TimfNetProfile.Vanilla;
+
         public TimfSide InferredSide { get; set; } = TimfSide.Client;
         public bool SideWasExplicit { get; set; }
         public bool HasClientCapability { get; set; }
@@ -46,7 +49,13 @@ namespace TIMF.Core.Modding
 
         public bool ParticipatesInHandshake
         {
-            get { return TimfSides.ParticipatesInHandshake(Side); }
+            get { return TimfNetProfiles.ParticipatesInHandshake(NetProfile); }
+        }
+
+        /// <summary>Host rejects peers lacking this mod. Only ever true for handshake profiles.</summary>
+        public bool RequiredOnJoin
+        {
+            get { return TimfNetProfiles.RequiresPeer(NetProfile); }
         }
 
         public bool IsDeferredServerAuthority
@@ -132,7 +141,7 @@ namespace TIMF.Core.Modding
                 d.HasClientCapability = classified.HasClientCapability;
                 d.HasAuthorityCapability = classified.HasAuthorityCapability;
                 d.Side = classified.Side;
-                d.RequiredOnJoin = classified.RequiredOnJoin;
+                d.NetProfile = classified.NetProfile;
                 if (!string.IsNullOrEmpty(classified.FailReason))
                     d.FailReason = classified.FailReason;
             }

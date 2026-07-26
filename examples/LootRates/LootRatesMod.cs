@@ -9,18 +9,19 @@ using TIMF.Abstractions;
 namespace LootRates
 {
     /// <summary>
-    /// Example <see cref="IVanillaPlugin"/>: coin / item loot multipliers on the host only.
+    /// Example <see cref="IAuthorityMod"/>: coin / item loot multipliers on the host only.
     ///
     /// Best-practice shape:
     /// <list type="bullet">
-    /// <item>Implement <see cref="IVanillaPlugin"/> → loader forces <see cref="TimfSide.Plugin"/>.</item>
-    /// <item>No handshake catalog; pure vanilla clients can join.</item>
+    /// <item>Implement <see cref="IAuthorityMod"/> → loader infers <see cref="TimfSide.Authority"/>.</item>
+    /// <item>Leave <c>Net</c> at the default <see cref="TimfNetProfile.Vanilla"/>: no handshake
+    /// catalog entry, so pure vanilla clients can still join the host.</item>
     /// <item>Install Harmony hooks only when <see cref="IAuthorityServices.IsAuthoritative"/>.</item>
     /// <item>Keep vanilla item/money packets so remote clients stay compatible.</item>
     /// </list>
     /// </summary>
     [TimfMod(Id = "LootRates")]
-    public sealed class LootRatesMod : IVanillaPlugin, IModSettings, IServerMod
+    public sealed class LootRatesMod : IAuthorityMod, IModSettings, IAuthorityLifecycle
     {
         private IModContext _ctx;
         private LootRatesConfig _config;
@@ -72,24 +73,24 @@ namespace LootRates
             _ctx = null;
         }
 
-        public void OnServerActivate(IModContext context)
+        public void OnAuthorityActivate(IModContext context)
         {
             ActiveConfig = _config;
             ActiveLog = context.Log ?? _ctx?.Log;
             // Best practice: only install authority hooks when the process owns the world.
             if (context.Authority == null || !context.Authority.IsAuthoritative)
             {
-                context.Log.Warn("LootRates OnServerActivate skipped — not authoritative");
+                context.Log.Warn("LootRates OnAuthorityActivate skipped — not authoritative");
                 return;
             }
             InstallHooks();
-            context.Log.Info("LootRates OnServerActivate — hooks live (host authority)");
+            context.Log.Info("LootRates OnAuthorityActivate — hooks live (host authority)");
         }
 
-        public void OnServerDeactivate()
+        public void OnAuthorityDeactivate()
         {
             UninstallHooks();
-            _ctx?.Log.Info("LootRates OnServerDeactivate — hooks removed");
+            _ctx?.Log.Info("LootRates OnAuthorityDeactivate — hooks removed");
         }
 
         public void PostDraw(GameTime gameTime)
@@ -101,18 +102,12 @@ namespace LootRates
         {
             if (_config == null)
             {
-                ui.TextColored("Config not loaded yet (enter a world / host to activate plugin).", new Color(200, 180, 120));
+                ui.TextColored("Enter a world to activate.", new Color(200, 180, 120));
                 return;
             }
 
             var dirty = false;
             var L = _ctx.L;
-
-            ui.TextColored(L.Get("Settings.Title", "Vanilla-compatible loot multipliers (host only)."), new Color(160, 200, 255));
-            ui.TextColored(
-                L.Get("Settings.Hint", "Runs on SP / Host / dedicated. Vanilla clients receive normal item packets."),
-                new Color(150, 150, 150));
-            ui.Separator();
 
             dirty |= ui.Checkbox(L.Get("Settings.Enabled", "Enable loot rates"), ref _config.Enabled);
 
@@ -129,15 +124,6 @@ namespace LootRates
                 ref _config.CoinMultiplier,
                 1f,
                 20f);
-
-            ui.Spacing(4f);
-            ui.TextColored(
-                L.Format("Settings.Status",
-                    _config.Enabled ? "ON" : "OFF",
-                    _config.ExtraItemRolls.ToString(),
-                    LootRatesConfig.ClampCoin(_config.CoinMultiplier).ToString("0.##"),
-                    _hooksLive ? "live" : "idle"),
-                _hooksLive && _config.Enabled ? new Color(140, 220, 140) : new Color(160, 160, 160));
 
             if (dirty)
             {

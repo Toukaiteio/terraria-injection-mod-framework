@@ -105,9 +105,6 @@ namespace IHaveMyPhoneAnyway
             var L = _ctx.L;
 
             dirty |= ui.Checkbox(L.Get("Settings.Enabled", "Enabled"), ref _config.Enabled);
-            ui.TextColored(L.Get("Settings.Hint", "Shows phone info displays. No teleport."), new Color(160, 200, 255));
-            ui.Separator();
-            ui.Text(L.Get("Settings.Categories", "Info categories:"));
             dirty |= ui.Checkbox(L.Get("Settings.Clock", "Clock (exact time)"), ref _config.Clock);
             dirty |= ui.Checkbox(L.Get("Settings.Position", "Position + depth"), ref _config.PositionAndDepth);
             dirty |= ui.Checkbox(L.Get("Settings.Weather", "Weather / wind"), ref _config.Weather);
@@ -116,9 +113,6 @@ namespace IHaveMyPhoneAnyway
             dirty |= ui.Checkbox(L.Get("Settings.Rare", "Rare creatures nearby"), ref _config.RareCreatures);
             dirty |= ui.Checkbox(L.Get("Settings.Detection", "Detection (enemies/treasure/ore/DPS)"), ref _config.Detection);
             dirty |= ui.Checkbox(L.Get("Settings.Movement", "Movement speed"), ref _config.Movement);
-
-            ui.Spacing();
-            ui.TextColored(L.Get("Settings.Tip", "Tip: hover the info icons (top-left) for details."), new Color(150, 150, 150));
 
             if (dirty)
                 SaveConfig();

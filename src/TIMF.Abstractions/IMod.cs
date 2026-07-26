@@ -5,13 +5,14 @@ namespace TIMF.Abstractions
     /// <summary>
     /// TIMF mod entry point. Implement a public class in your mod DLL.
     ///
-    /// Prefer capability markers for automatic side classification:
+    /// Declare capability markers; the loader infers <see cref="TimfSide"/> from them:
     /// <list type="bullet">
     /// <item><see cref="IClientMod"/> — client UI / local hooks</item>
-    /// <item><see cref="IAuthorityMod"/> — world authority (handshake Server)</item>
-    /// <item><see cref="IVanillaPlugin"/> — vanilla-join-compatible host plugin</item>
+    /// <item><see cref="IAuthorityMod"/> — world logic; both together give <see cref="TimfSide.Both"/></item>
     /// </list>
-    /// Optional <see cref="TimfModAttribute"/> can pin id / side / dependencies.
+    /// Whether joining peers need matching code is the separate <see cref="TimfNetProfile"/>
+    /// axis, set via <see cref="TimfModAttribute.Net"/> and defaulting to vanilla-compatible.
+    /// <see cref="TimfModAttribute"/> also pins id / dependencies.
     /// </summary>
     public interface IMod
     {

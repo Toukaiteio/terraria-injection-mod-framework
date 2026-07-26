@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using TIMF.Abstractions;
 
 namespace TIMF.Core.Hooks
@@ -8,56 +7,16 @@ namespace TIMF.Core.Hooks
     /// Holds registered info-accessory hooks and dispatches them from the RefreshInfoAccs postfix.
     /// Registered into the service registry as <see cref="IInfoAccessoryHookRegistry"/>.
     /// </summary>
-    internal sealed class InfoAccessoryHookRegistry : IInfoAccessoryHookRegistry
+    internal sealed class InfoAccessoryHookRegistry
+        : HookRegistryBase<IInfoAccessoryHook>, IInfoAccessoryHookRegistry
     {
-        private readonly ILogger _log;
-        private readonly List<IInfoAccessoryHook> _hooks = new List<IInfoAccessoryHook>();
-        private readonly object _lock = new object();
-
-        public InfoAccessoryHookRegistry(ILogger log)
-        {
-            _log = log;
-        }
-
-        public void Add(IInfoAccessoryHook hook)
-        {
-            if (hook == null)
-                return;
-            try
-            {
-                if (Terraria.Main.dedServ)
-                {
-                    _log.Error("IInfoAccessoryHook.Add rejected: client hook cannot register on dedicated server");
-                    return;
-                }
-            }
-            catch { /* ignore */ }
-            lock (_lock)
-            {
-                if (!_hooks.Contains(hook))
-                    _hooks.Add(hook);
-            }
-        }
-
-        public void Remove(IInfoAccessoryHook hook)
-        {
-            if (hook == null)
-                return;
-            lock (_lock)
-            {
-                _hooks.Remove(hook);
-            }
-        }
+        public InfoAccessoryHookRegistry(ILogger log) : base(log) { }
 
         public void Dispatch(object localPlayer)
         {
-            IInfoAccessoryHook[] snapshot;
-            lock (_lock)
-            {
-                if (_hooks.Count == 0)
-                    return;
-                snapshot = _hooks.ToArray();
-            }
+            var snapshot = Snapshot();
+            if (snapshot == null)
+                return;
 
             for (var i = 0; i < snapshot.Length; i++)
             {
@@ -67,7 +26,7 @@ namespace TIMF.Core.Hooks
                 }
                 catch (Exception ex)
                 {
-                    _log.Error("IInfoAccessoryHook.OnRefreshInfoAccessories failed", ex);
+                    Report("OnRefreshInfoAccessories", ex);
                 }
             }
         }

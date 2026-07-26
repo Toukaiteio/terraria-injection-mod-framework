@@ -1,7 +1,7 @@
 namespace TIMF.Abstractions
 {
     /// <summary>
-    /// Capability marker: this mod uses client-process features
+    /// Capability marker: this mod needs client-process features
     /// (UI, keybinds, local player hooks, overlays, PostDraw).
     ///
     /// Loader inference: alone → <see cref="TimfSide.Client"/>;

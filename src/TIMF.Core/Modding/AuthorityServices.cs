@@ -4,6 +4,12 @@ namespace TIMF.Core.Modding
 {
     internal sealed class AuthorityServices : IAuthorityServices
     {
+        public AuthorityServices(IWeatherService weather, IPrefixService prefix)
+        {
+            Weather = weather;
+            Prefix = prefix;
+        }
+
         public bool IsAuthoritative
         {
             get
@@ -12,7 +18,6 @@ namespace TIMF.Core.Modding
                 {
                     if (Terraria.Main.dedServ)
                         return true;
-                    // 0 = SP, 2 = listen host; 1 = multiplayer client (not authority).
                     return Terraria.Main.netMode != 1;
                 }
                 catch
@@ -21,5 +26,8 @@ namespace TIMF.Core.Modding
                 }
             }
         }
+
+        public IWeatherService Weather { get; }
+        public IPrefixService Prefix { get; }
     }
 }

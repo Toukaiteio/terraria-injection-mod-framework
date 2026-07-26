@@ -6,11 +6,14 @@ namespace TimfServerProbe
 {
     /// <summary>
     /// Example <see cref="IAuthorityMod"/>: logs activate/deactivate so handshake / host paths are visible.
-    /// Handshake-visible Server side with RequiredOnJoin (vanilla clients are kicked when hosting).
-    /// Prefer <see cref="IVanillaPlugin"/> for vanilla-compatible host balance mods.
+    ///
+    /// Opts into <see cref="TimfNetProfile.Required"/>, so the host advertises this mod on the
+    /// handshake and kicks peers that lack it. This is the strict end of the ladder — plain
+    /// host-side balance mods should stay on the default <see cref="TimfNetProfile.Vanilla"/>
+    /// so pure vanilla clients can still join (see the LootRates example).
     /// </summary>
-    [TimfMod(Id = "TimfServerProbe", Side = TimfSide.Server, RequiredOnJoin = true)]
-    public sealed class TimfServerProbeMod : IAuthorityMod, IServerMod
+    [TimfMod(Id = "TimfServerProbe", Net = TimfNetProfile.Required)]
+    public sealed class TimfServerProbeMod : IAuthorityMod, IAuthorityLifecycle
     {
         private ILogger _log;
 
@@ -31,16 +34,16 @@ namespace TimfServerProbe
             _log?.Info("TimfServerProbe Unload");
         }
 
-        public void OnServerActivate(IModContext context)
+        public void OnAuthorityActivate(IModContext context)
         {
             (context.Log ?? _log)?.Info(
-                "TimfServerProbe OnServerActivate authoritative="
+                "TimfServerProbe OnAuthorityActivate authoritative="
                 + (context.Authority != null && context.Authority.IsAuthoritative));
         }
 
-        public void OnServerDeactivate()
+        public void OnAuthorityDeactivate()
         {
-            _log?.Info("TimfServerProbe OnServerDeactivate");
+            _log?.Info("TimfServerProbe OnAuthorityDeactivate");
         }
 
         public void PostDraw(GameTime gameTime)

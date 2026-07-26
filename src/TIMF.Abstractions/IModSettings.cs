@@ -7,7 +7,7 @@ namespace TIMF.Abstractions
     ///
     /// IMPORTANT: build widgets on <paramref name="ui"/> only — do not call Begin/End.
     /// </summary>
-    [TimfHook(TimfHookKind.Client)]
+    [TimfHook(TimfSide.Client)]
     public interface IModSettings
     {
         void BuildSettingsUI(IImmediateModeUi ui);

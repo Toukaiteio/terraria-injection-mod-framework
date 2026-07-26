@@ -251,9 +251,6 @@ namespace AutoFishing
             var L = _ctx.L;
 
             dirty |= ui.Checkbox(L.Get("Settings.Enabled", "Enabled"), ref _config.Enabled);
-            ui.TextColored(L.Get("Settings.Hint", "Hold a fishing pole to auto-cast & reel."), new Color(160, 200, 255));
-            ui.Separator();
-
             dirty |= ui.Checkbox(L.Get("Settings.ShowMessages", "Show catch messages"), ref _config.ShowMessages);
             dirty |= ui.Checkbox(L.Get("Settings.ShowIcons", "Show item icons in messages"), ref _config.ShowIcons);
             dirty |= ui.Checkbox(L.Get("Settings.ShareToChat", "Share messages to chat (MP)"), ref _config.ShareToChat);

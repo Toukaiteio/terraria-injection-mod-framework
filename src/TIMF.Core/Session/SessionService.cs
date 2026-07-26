@@ -9,8 +9,8 @@ namespace TIMF.Core.Session
 {
     /// <summary>
     /// Tracks Main.netMode / dedServ / gameMenu and drives server-mod Activate/Deactivate
-    /// plus TIMF handshake (only when local handshake-visible Server/Both mods exist).
-    /// <see cref="TimfSide.Plugin"/> activates on host/SP/dedicated without arming handshake.
+    /// plus TIMF handshake (only when local handshake-profile mods exist).
+    /// Vanilla-profile authority mods activate on host/SP/dedicated without arming the handshake.
     /// </summary>
     internal sealed class SessionService : ITimfSession
     {
@@ -71,8 +71,8 @@ namespace TIMF.Core.Session
         public bool HasLocalServerSideMods => _mods.HasLocalServerSideMods;
 
         /// <summary>
-        /// Install net hooks only when handshake-visible Server/Both mods exist.
-        /// Plugin-only hosts skip the transport but still activate plugins on session enter.
+        /// Install net hooks only when handshake-profile mods exist.
+        /// Vanilla-profile-only hosts skip the transport but still activate authority on session enter.
         /// </summary>
         public void Start()
         {
@@ -235,7 +235,7 @@ namespace TIMF.Core.Session
             }
 
             _log.Info("SessionService: enter " + kind
-                      + " — activating all local server-authority mods (Server/Both/Plugin)");
+                      + " — activating all local authority-capable mods");
             try
             {
                 _mods.ActivateAllLocalServerMods();
@@ -440,7 +440,7 @@ namespace TIMF.Core.Session
         }
 
         /// <summary>
-        /// True when the host catalog has at least one Server/Both mod with RequiredOnJoin.
+        /// True when the host catalog has at least one Net=Required mod.
         /// Only then must joining clients prove TIMF (ClientHello); otherwise vanilla is allowed.
         /// </summary>
         private bool HostHasRequiredJoinMods()

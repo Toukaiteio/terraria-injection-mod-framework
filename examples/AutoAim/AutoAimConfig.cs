@@ -17,8 +17,10 @@ namespace AutoAim
         public bool TargetCritters = false;
         public bool TargetTownNpcs = false;
 
-        // If false, target must be reachable (Collision.CanHit line of sight not blocked by tiles).
-        // If true, ignore walls entirely.
+        // If false: require Collision.CanHit, except:
+        //   - wall-phasing NPCs (npc.noTileCollide), matching vanilla melee rules
+        //   - held weapons whose primary projectile defaults to tileCollide=false
+        // If true: ignore walls for every target.
         public bool IgnoreWalls = false;
 
         public float Range = 700f;           // pixels

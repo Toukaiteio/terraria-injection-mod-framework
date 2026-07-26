@@ -129,25 +129,10 @@ namespace AutoHeal
             var dirty = false;
             var L = _ctx.L;
 
-            ui.Text(L.Get("Settings.Title", "Auto Quick Heal / Mana (client-side)."));
-            ui.TextColored(L.Get("Settings.Hint", "Uses vanilla QuickHeal / QuickMana item selection."), new Color(160, 200, 255));
-            ui.Separator();
-
             dirty |= ui.Checkbox(L.Get("Settings.AutoHeal", "Auto Quick Heal"), ref _config.AutoHeal);
             dirty |= ui.SliderFloat(L.Get("Settings.HealBelow", "Heal when HP ≤ %"), ref _config.HealBelowPercent, 0.05f, 1f);
-            ui.TextColored(
-                L.Format("Settings.HealThreshold", Pct(_config.HealBelowPercent)),
-                new Color(150, 150, 150));
-
-            ui.Spacing();
             dirty |= ui.Checkbox(L.Get("Settings.AutoMana", "Auto Quick Mana"), ref _config.AutoMana);
             dirty |= ui.SliderFloat(L.Get("Settings.ManaBelow", "Mana when MP ≤ %"), ref _config.ManaBelowPercent, 0.05f, 1f);
-            ui.TextColored(
-                L.Format("Settings.ManaThreshold", Pct(_config.ManaBelowPercent)),
-                new Color(150, 150, 150));
-
-            ui.Spacing();
-            ui.TextColored(L.Get("Settings.Respects", "Respects potion sickness & inventory/void-bag items."), new Color(150, 150, 150));
 
             if (dirty)
                 SaveConfig();

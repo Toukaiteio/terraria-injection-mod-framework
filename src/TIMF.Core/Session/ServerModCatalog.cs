@@ -24,7 +24,7 @@ namespace TIMF.Core.Session
     }
 
     /// <summary>
-    /// Local catalog of handshake-visible Server/Both mods (Plugin excluded).
+    /// Local catalog of handshake-profile mods (Optional/Required; Vanilla excluded).
     /// Used for TIMF join protocol only — not the full server-authority set.
     /// </summary>
     internal sealed class ServerModCatalog
@@ -47,8 +47,8 @@ namespace TIMF.Core.Session
             {
                 if (d == null || d.FailReason != null)
                     continue;
-                // Plugins intentionally stay out of the handshake catalog so pure vanilla
-                // clients never need TIMF when the host only runs Plugin-side balance mods.
+                // Vanilla-profile mods intentionally stay out of the handshake catalog so pure vanilla
+                // clients never need TIMF when the host only runs vanilla-safe balance mods.
                 if (!d.ParticipatesInHandshake)
                     continue;
                 if (string.IsNullOrEmpty(d.Id))

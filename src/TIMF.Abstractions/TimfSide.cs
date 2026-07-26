@@ -1,29 +1,42 @@
+using System;
+
 namespace TIMF.Abstractions
 {
     /// <summary>
-    /// Declared role of a TIMF mod. Prefer capability interfaces
-    /// (<see cref="IClientMod"/>, <see cref="IAuthorityMod"/>, <see cref="IVanillaPlugin"/>)
-    /// so the loader can infer and validate this value automatically.
+    /// Which Terraria process role a mod's code belongs to.
+    ///
+    /// Mirrors the two independent facts vanilla itself branches on, so a mod declares
+    /// its side the same way Terraria's own code decides what to run:
+    /// <list type="bullet">
+    /// <item><see cref="Client"/> ← <c>!Main.dedServ</c> — there is a local player to draw / read input for.</item>
+    /// <item><see cref="Authority"/> ← <c>Main.netMode != 1</c> — this process owns the world simulation.</item>
+    /// </list>
+    ///
+    /// These are orthogonal in vanilla (singleplayer has both, a dedicated server has only
+    /// authority, a multiplayer client has only the client half), so this is a flags enum
+    /// rather than a list of named combinations.
+    ///
+    /// Note that <see cref="Authority"/> means "this code is world logic", not "this process
+    /// is the server" — exactly like Terraria, which ships world-simulation code inside the
+    /// client binary and gates it at runtime. Ask <see cref="IAuthorityServices.IsAuthoritative"/>
+    /// whether the current process may actually write.
+    ///
+    /// Whether joining peers need matching code is a separate question — see <see cref="TimfNetProfile"/>.
     /// </summary>
+    [Flags]
     public enum TimfSide
     {
-        /// <summary>Client process only: UI, overlays, local input. No handshake.</summary>
-        Client = 0,
+        /// <summary>No capability declared. Never valid for a loaded mod.</summary>
+        None = 0,
 
-        /// <summary>
-        /// Authoritative logic advertised on the TIMF handshake.
-        /// Activates on SP / host / dedicated, or on a multiplayer client after handshake.
-        /// </summary>
-        Server = 1,
+        /// <summary>Client process: UI, overlays, keybinds, local player hooks.</summary>
+        Client = 1 << 0,
 
-        /// <summary>Client path loads immediately; authority path activates with the session.</summary>
-        Both = 2,
+        /// <summary>World logic: loot, NPC, world rules. Gate writes on IsAuthoritative.</summary>
+        Authority = 1 << 1,
 
-        /// <summary>
-        /// Vanilla-compatible host plugin: authority only, never on multiplayer clients,
-        /// never in the handshake catalog, never RequiredOnJoin.
-        /// </summary>
-        Plugin = 3,
+        /// <summary>Both halves. Equivalent to <c>Client | Authority</c>.</summary>
+        Both = Client | Authority,
     }
 
     /// <summary>Helpers for <see cref="TimfSide"/> classification.</summary>
@@ -31,29 +44,22 @@ namespace TIMF.Abstractions
     {
         public static bool IsClientCapable(TimfSide side)
         {
-            return side == TimfSide.Client || side == TimfSide.Both;
+            return (side & TimfSide.Client) != 0;
         }
 
         public static bool IsAuthorityCapable(TimfSide side)
         {
-            return side == TimfSide.Server
-                || side == TimfSide.Both
-                || side == TimfSide.Plugin;
+            return (side & TimfSide.Authority) != 0;
         }
 
-        public static bool ParticipatesInHandshake(TimfSide side)
-        {
-            return side == TimfSide.Server || side == TimfSide.Both;
-        }
-
+        /// <summary>
+        /// Authority-only mods have nothing to run until the session grants authority,
+        /// so the loader defers their assembly load until activation and unloads on deactivate.
+        /// A mod with a client half must load eagerly instead.
+        /// </summary>
         public static bool IsDeferredAuthority(TimfSide side)
         {
-            return side == TimfSide.Server || side == TimfSide.Plugin;
-        }
-
-        public static bool IsVanillaJoinCompatible(TimfSide side)
-        {
-            return side == TimfSide.Client || side == TimfSide.Plugin;
+            return side == TimfSide.Authority;
         }
     }
 }

@@ -1,0 +1,15 @@
+{
+  "Settings.Enabled": "Enabled",
+  "Settings.Hold": "Hold weather (block vanilla random changes)",
+  "Settings.PresetHeader": "Preset",
+  "Settings.WindSpeed": "Wind",
+  "Settings.MoonPhase": "Moon 0–7",
+  "Settings.BloodMoon": "Blood Moon",
+  "Settings.PumpkinMoon": "Pumpkin Moon",
+  "Settings.FrostMoon": "Frost Moon",
+  "Settings.LanternNight": "Lantern Night",
+  "Settings.ApplyNow": "Apply",
+  "Settings.ClearNow": "Clear",
+  "Chat.Applied": "Weather: ",
+  "Chat.NotActive": "Enter SP/Host first."
+}

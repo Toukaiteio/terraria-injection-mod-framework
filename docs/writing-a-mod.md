@@ -2,6 +2,10 @@
 
 从零到能跑的最短路径。API 细节见 [api-reference.md](./api-reference.md)，侧别概念见 [side-model.md](./side-model.md)。
 
+> **安全要求：** 模组被加载不等于获得本机权限。不要直接读取 `ModDirectory` / `ContentDirectory` 之外
+> 的文件，不要自主写文件，也不要调用 Shell、脚本或 `Process.Start`。这些行为属于敏感权限，必须经
+> 框架授权并由框架告知用户；当前版本尚未公开权限服务，因此安全模组应避免这些行为。
+
 ## 1. 建工程
 
 在 `mods\<Id>\` 下建一个类库：

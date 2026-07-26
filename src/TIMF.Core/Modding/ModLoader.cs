@@ -129,6 +129,21 @@ namespace TIMF.Core.Modding
                 byId[d.Id] = d;
             }
 
+            // Surface bad version strings at discovery. Left as a warning, not a load failure:
+            // a mod nobody depends on and that never joins a handshake still works fine.
+            foreach (var d in _descriptors)
+            {
+                if (d.FailReason != null || string.IsNullOrEmpty(d.Id))
+                    continue;
+                if (IsParsableVersion(d.Version))
+                    continue;
+
+                _log.Warn("Mod '" + d.Id + "' reports version '" + d.Version
+                          + "' which TIMF cannot compare (expected 1-4 dotted numbers, optional "
+                          + "-prerelease suffix). Any MinVersion dependency on it will fail, and it "
+                          + "cannot satisfy a handshake version check.");
+            }
+
             foreach (var d in _descriptors)
             {
                 if (d.FailReason != null)
@@ -154,11 +169,31 @@ namespace TIMF.Core.Modding
                         break;
                     }
 
-                    if (!string.IsNullOrWhiteSpace(dep.MinVersion) && !VersionOk(target.Version, dep.MinVersion))
+                    if (!string.IsNullOrWhiteSpace(dep.MinVersion))
                     {
-                        d.FailReason = "Dependency " + dep.Id + " version " + target.Version + " < required " + dep.MinVersion;
-                        _log.Error("Mod '" + d.Id + "' " + d.FailReason);
-                        break;
+                        if (!IsParsableVersion(dep.MinVersion))
+                        {
+                            d.FailReason = "Dependency " + dep.Id + " declares MinVersion '" + dep.MinVersion
+                                           + "' which is not a valid version (expected 1-4 dotted numbers, "
+                                           + "optional -prerelease suffix)";
+                        }
+                        else if (!IsParsableVersion(target.Version))
+                        {
+                            d.FailReason = "Dependency " + dep.Id + " reports version '" + target.Version
+                                           + "' which is not a valid version, so MinVersion "
+                                           + dep.MinVersion + " cannot be verified";
+                        }
+                        else if (!VersionOk(target.Version, dep.MinVersion))
+                        {
+                            d.FailReason = "Dependency " + dep.Id + " version " + target.Version
+                                           + " < required " + dep.MinVersion;
+                        }
+
+                        if (d.FailReason != null)
+                        {
+                            _log.Error("Mod '" + d.Id + "' " + d.FailReason);
+                            break;
+                        }
                     }
                 }
             }
@@ -820,22 +855,27 @@ namespace TIMF.Core.Modding
             return true;
         }
 
+        /// <summary>
+        /// True when <paramref name="actual"/> is at least <paramref name="minRequired"/>.
+        ///
+        /// Fails closed: an unparseable version on either side never satisfies a requirement.
+        /// This matters because handshake callers compare a version string received from an
+        /// untrusted peer — a lenient fallback would let a client send a garbage version and
+        /// walk straight through a <see cref="TimfNetProfile.Required"/> gate.
+        /// </summary>
         internal static bool VersionOk(string actual, string minRequired)
         {
-            Version a, b;
-            if (Version.TryParse(NormalizeVer(actual), out a) && Version.TryParse(NormalizeVer(minRequired), out b))
-                return a >= b;
-            return string.Compare(actual ?? "", minRequired ?? "", StringComparison.OrdinalIgnoreCase) >= 0;
+            ModVersion a, b;
+            if (!ModVersion.TryParse(actual, out a) || !ModVersion.TryParse(minRequired, out b))
+                return false;
+            return a.CompareTo(b) >= 0;
         }
 
-        private static string NormalizeVer(string v)
+        /// <summary>True when the string is a version TIMF can compare. See <see cref="ModVersion"/>.</summary>
+        internal static bool IsParsableVersion(string version)
         {
-            if (string.IsNullOrWhiteSpace(v))
-                return "0.0.0";
-            var parts = v.Trim().Split('.');
-            if (parts.Length == 1) return parts[0] + ".0.0";
-            if (parts.Length == 2) return parts[0] + "." + parts[1] + ".0";
-            return v.Trim();
+            ModVersion parsed;
+            return ModVersion.TryParse(version, out parsed);
         }
 
         private static Type FindModType(Assembly asm)

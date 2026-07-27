@@ -175,6 +175,13 @@ namespace TIMF.Core.Content
             if (content == null || __instance == null || !content.IsModdedTile(tileToCreate))
                 return;
 
+            var definition = content.GetTile(tileToCreate);
+            if (!content.IsSessionAllowed(definition))
+            {
+                overrideCanPlace = false;
+                return;
+            }
+
             // Definitions with TileObjectData have their own anchor and footprint rules; the
             // vanilla object-placement path already handles them and must remain authoritative.
             try

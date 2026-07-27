@@ -3,6 +3,7 @@ using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Terraria;
 using TIMF.Abstractions;
+using TIMF.Abstractions.Security;
 
 namespace WorldMapIcons
 {
@@ -28,9 +29,8 @@ namespace WorldMapIcons
         public void Load(IModContext context)
         {
             _ctx = context;
-            var cfgPath = System.IO.Path.Combine(context.ConfigDirectory, "WorldMapIcons.json");
-            _config = WorldMapIconsConfig.LoadOrCreate(cfgPath);
-            _tex = new GameTextures(context.Log);
+            _config = WorldMapIconsConfig.LoadOrCreate(context.Storage, "WorldMapIcons.json");
+            _tex = new GameTextures(context.Log, context.Services.GetService<ITerrariaReflection>());
 
             if (context.Client != null && context.Client.MapOverlay != null)
             {
@@ -304,7 +304,7 @@ namespace WorldMapIcons
         {
             try
             {
-                _config.Save(System.IO.Path.Combine(_ctx.ConfigDirectory, "WorldMapIcons.json"));
+                _config.Save(_ctx.Storage, "WorldMapIcons.json");
             }
             catch (Exception ex)
             {

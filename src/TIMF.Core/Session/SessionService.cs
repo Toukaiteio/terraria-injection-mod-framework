@@ -78,10 +78,7 @@ namespace TIMF.Core.Session
         {
             if (_mods.HasLocalServerSideMods)
             {
-                _net = new TimfNetTransport(_log, this);
-                _net.Install();
-                DedServSessionPollPatch.SetSession(this, _log);
-                _log.Info("SessionService: handshake transport armed (MessageID " + TimfNetProtocol.MessageId + ")");
+                EnsureTransport();
             }
             else if (_mods.HasLocalServerAuthorityMods)
             {
@@ -155,6 +152,10 @@ namespace TIMF.Core.Session
                         _log.Info("SessionService: HostHello timeout — treating remote as non-TIMF (no server mods)");
                         _clientHelloDeadlineUtc = DateTime.MinValue;
                         _handshakeArmed = false;
+                        _mods.ApplySessionPolicy(
+                            TimfSessionKind.MultiplayerClient,
+                            Enumerable.Empty<string>(),
+                            true);
                     }
                     else if (_lastClientHelloUtc == DateTime.MinValue
                              || (DateTime.UtcNow - _lastClientHelloUtc).TotalSeconds >= 2.0)
@@ -224,6 +225,9 @@ namespace TIMF.Core.Session
         {
             LeaveSession("switch->" + kind);
 
+            if (_mods.HasLocalServerSideMods)
+                EnsureTransport();
+
             lock (_lock)
             {
                 _kind = kind;
@@ -238,6 +242,7 @@ namespace TIMF.Core.Session
                       + " — activating all local authority-capable mods");
             try
             {
+                _mods.ApplySessionPolicy(kind, Enumerable.Empty<string>(), true);
                 _mods.ActivateAllLocalServerMods();
                 lock (_lock)
                 {
@@ -254,6 +259,9 @@ namespace TIMF.Core.Session
         {
             LeaveSession("switch->client");
 
+            if (_mods.HasLocalServerSideMods)
+                EnsureTransport();
+
             lock (_lock)
             {
                 _kind = TimfSessionKind.MultiplayerClient;
@@ -264,9 +272,20 @@ namespace TIMF.Core.Session
                 _clientHelloDeadlineUtc = DateTime.MinValue;
             }
 
+            // Fail closed before the handshake result arrives: Both/Authority callbacks and
+            // settings are suppressed until the host explicitly advertises them.
+            _mods.ApplySessionPolicy(
+                TimfSessionKind.MultiplayerClient,
+                Enumerable.Empty<string>(),
+                false);
+
             if (!_mods.HasLocalServerSideMods)
             {
                 _log.Info("SessionService: multiplayer client without local server mods — no handshake");
+                _mods.ApplySessionPolicy(
+                    TimfSessionKind.MultiplayerClient,
+                    Enumerable.Empty<string>(),
+                    true);
                 return;
             }
 
@@ -309,6 +328,10 @@ namespace TIMF.Core.Session
                 _greetedClients.Clear();
                 _pendingClientHello.Clear();
             }
+            _mods.ApplySessionPolicy(
+                TimfSessionKind.Menu,
+                Enumerable.Empty<string>(),
+                true);
         }
 
         private void SendClientHello()
@@ -323,6 +346,22 @@ namespace TIMF.Core.Session
                 Mods = _mods.ServerCatalog.Snapshot().Select(ToNetEntry).ToList(),
             };
             _net.SendToServer(msg);
+        }
+
+        /// <summary>
+        /// A handshake mod may be enabled from the main menu after SessionService.Start. Arm
+        /// transport lazily on world entry as well as at startup so that menu changes take
+        /// effect without restarting the process.
+        /// </summary>
+        private void EnsureTransport()
+        {
+            if (_net != null)
+                return;
+            _net = new TimfNetTransport(_log, this);
+            _net.Install();
+            DedServSessionPollPatch.SetSession(this, _log);
+            _log.Info("SessionService: handshake transport armed (MessageID "
+                      + TimfNetProtocol.MessageId + ")");
         }
 
         private void SendHostHello(int remoteClient)
@@ -678,6 +717,10 @@ namespace TIMF.Core.Session
 
             try
             {
+                _mods.ApplySessionPolicy(
+                    TimfSessionKind.MultiplayerClient,
+                    enabled.Select(e => e.Id),
+                    true);
                 _mods.ActivateServerMods(enabled.Select(e => e.Id));
             }
             catch (Exception ex)

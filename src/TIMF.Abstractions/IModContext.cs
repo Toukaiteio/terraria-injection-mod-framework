@@ -48,5 +48,20 @@ namespace TIMF.Abstractions
         /// <see cref="IAuthorityServices.IsAuthoritative"/>.
         /// </summary>
         IAuthorityServices Authority { get; }
+
+        /// <summary>
+        /// Framework-mediated sensitive file/process operations for this mod. A request is
+        /// denied by default and cannot execute until the user approves it in TIMF's security UI.
+        /// </summary>
+        Security.ISensitiveOperationService Security { get; }
+
+        /// <summary>Confined configuration and packaged-content storage for this mod.</summary>
+        Storage.IModStorage Storage { get; }
+
+        /// <summary>Postfix-only, Terraria-targeted patch broker for compatibility hooks.</summary>
+        Security.IModPatchService Patches { get; }
+
+        /// <summary>Identity-bound publisher for custom mod service interfaces.</summary>
+        IModServicePublisher ServicePublisher { get; }
     }
 }

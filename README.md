@@ -85,17 +85,15 @@ TIMF 用**两根正交的轴**描述一个 mod。完整说明见 [侧别与协�
 | `Required` | 是 | **不能**（会被踢出） |
 
 ```csharp
-// 客户端 QoL
-[TimfMod(Id = "AutoHeal", Side = TimfSide.Client)]
-public sealed class AutoHealMod : IClientMod, IModSettings, IPlayerUpdateHook { }
+// 客户端显示增强
+[TimfMod(Id = "HighLight", Side = TimfSide.Client)]
+public sealed class HighLightMod : IClientMod, IModSettings { }
 
 // 原版兼容的主机逻辑（掉落 / 经济 / 天气）—— 默认 Net = Vanilla
 [TimfMod(Id = "LootRates")]
 public sealed class LootRatesMod : IAuthorityMod, IModSettings, IAuthorityLifecycle { }
 
-// 需联机双方都装的权威逻辑
-[TimfMod(Id = "TimfServerProbe", Net = TimfNetProfile.Required)]
-public sealed class TimfServerProbeMod : IAuthorityMod, IAuthorityLifecycle { }
+// 如需联机双方都安装，可在权威模组上声明 Net = TimfNetProfile.Required。
 ```
 
 > `[TimfMod(Side = ...)]` 是**断言**而非覆盖：写了就必须与接口推断结果一致，否则加载失败。接口是唯一真相。
@@ -106,26 +104,38 @@ public sealed class TimfServerProbeMod : IAuthorityMod, IAuthorityLifecycle { }
 |---|---|---|---|
 | `context.Client` | **null** | 可用 | 可用 |
 | `context.Authority.IsAuthoritative` | `true` | **`false`** | `true` |
+| `context.Security` | 无交互时拒绝 | 可申请 | 可申请 |
 
 客户端钩子注册表（`IPlayerUpdateHook` 等）在专用服上 `Add` 会被拒绝并记日志。
+
+敏感文件/进程操作必须先展示精确目标并由用户授权，再由 `context.Security` 代理执行。安全中心支持拒绝、
+单次、当前 TIMF 进程、精确持久授权和撤销。当前模组 DLL 仍与游戏运行在同一完全信任进程中，框架无法
+可靠拦截绕过代理的 `System.IO`、`Process` 或原生调用；设置中心会持续展示这一隔离边界警告。
+
+作为加载前纵深防御，Core 会扫描模组主 DLL 与私有依赖的 IL/元数据；直接文件、进程、网络、P/Invoke、
+动态调用、原生依赖和直接 Harmony 等痕迹会在任何模组构造函数执行前被拒载，并显示在安全中心。普通配置
+改走每模组隔离的 `context.Storage`，Terraria 私有方法与 patch 分别走受限反射/patch 代理。静态审计能
+阻断常见绕过，但仍不等价于进程级沙箱。
+
+跨模组服务也采用身份绑定发布：普通模组只能通过 `context.ServicePublisher` 发布自己程序集声明的接口，
+不能覆盖既有框架/安全/UI 服务；直接调用原始服务注册入口会被预加载审计拒绝。
 
 ---
 
 ## 示例模组
 
-`examples/` 下的源码即最佳实践参考，`build-examples.ps1` 会全量构建。
+`examples/` 只保留以下 10 个公开示例，作为当前 API 的最佳实践参考；`build-examples.ps1` 会全量构建它们。
 
 | 示例 | 侧别 / 协议 | 说明 |
 |---|---|---|
-| AutoHeal · AutoAim · AutoFishing · AutoSwingAim | `Client` | 客户端 QoL |
-| BlockLocator · HighLight · BossCursor · LowHealthWarning | `Client` | 显示增强 |
+| BossCursor · HighLight · LowHealthWarning | `Client` | HUD、光照和状态提示等显示增强 |
 | WorldMapIcons | `Client` | 地图覆盖层示例（`IMapOverlayHook`） |
 | I-Have-My-Phone-Anyway | `Client` | 信息饰品示例（`IInfoAccessoryHook`） |
 | CreativeMode | `Client` | 物品生成 |
 | ModSettingsHub | `Client` | F9 统一设置中心 |
+| ContentTestKit | `Client` | 自定义物品、图格、墙、家具、容器和安全授权测试 |
 | **LootRates** | `Authority` / `Vanilla` | 主机掉落与金币倍率，**原版客户端可进房** |
 | **WeatherControl** | `Authority` / `Vanilla` | 天气控制与锁定，走 `IWeatherService` |
-| TimfServerProbe | `Authority` / `Required` | 握手探针，演示强制对端安装 |
 
 ---
 

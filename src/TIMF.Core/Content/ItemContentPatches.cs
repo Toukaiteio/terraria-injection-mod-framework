@@ -189,7 +189,7 @@ namespace TIMF.Core.Content
                 return;
 
             var def = Lookup(currentItem.type);
-            if (def == null)
+            if (def == null || !_content.IsSessionAllowed(def))
                 return;
 
             try
@@ -215,6 +215,12 @@ namespace TIMF.Core.Content
                 return null;
             try { return content.GetItem(id); }
             catch { return null; }
+        }
+
+        internal static bool IsItemSessionAllowed(int id)
+        {
+            var definition = Lookup(id);
+            return definition == null || (_content != null && _content.IsSessionAllowed(definition));
         }
     }
 

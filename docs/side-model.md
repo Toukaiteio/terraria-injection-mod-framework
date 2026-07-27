@@ -99,8 +99,8 @@ public enum TimfNetProfile { Vanilla = 0, Optional = 1, Required = 2 }
 
 ```csharp
 // ✅ 一致 —— Side 起自文档化作用
-[TimfMod(Id = "AutoHeal", Side = TimfSide.Client)]
-public sealed class AutoHealMod : IClientMod, IModSettings, IPlayerUpdateHook { }
+[TimfMod(Id = "HighLight", Side = TimfSide.Client)]
+public sealed class HighLightMod : IClientMod, IModSettings { }
 
 // ❌ 加载失败 —— 没实现 IAuthorityMod 却声称有权威半边
 [TimfMod(Id = "Bad", Side = TimfSide.Both)]
@@ -116,6 +116,15 @@ public sealed class BadMod : IClientMod { }
 **`IModSettings` 不计入客户端能力。** 它虽然标着 `[TimfHook(TimfSide.Client)]`，但那回答的是「这个钩子能在哪个进程被派发」，而能力推断回答的是「这个 mod 是否*需要*一个客户端半边」。`IModSettings` 只回答前者——它是机会性的客户端表面，在专用服上不被调用即可。因此一个 `IAuthorityMod + IModSettings` 的 mod 仍是纯 `Authority` 侧，保持延迟加载语义。
 
 **判断「是否破坏原版兼容」要看 `NetProfile`，不要 switch `Side`。** 这正是两根轴分开的意义。
+
+**进入世界后，权威集合必须冻结。** 在主菜单可以修改模组主开关；进入单人、主机、专用服或联机世界
+后，`Authority` 与 `Both` 的主开关都会锁定，避免客户端、主机和存档在同一会话中使用不同的模组集合。
+纯 `Client` 模组不改变世界或协议，仍可本地切换。
+
+**加入服务器时由服务器集合决定双端/服务端模组。** 联机客户端在 HostHello 前先默认禁止所有本地
+`Authority` / `Both` 执行；握手后只放行“服务器公布集合 ∩ 本地已启用且版本兼容集合”。服务器没有
+启用的本地模组不会永久改写用户偏好，只在当前会话标记为不可用，同时锁住主开关和设置页。回到主菜单
+后解除会话门闩。
 
 ## 7. 设计沿革
 

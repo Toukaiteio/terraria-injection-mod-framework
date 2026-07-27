@@ -90,6 +90,9 @@ IServiceRegistry Services { get; }
 IModLocalization L { get; }        // 本 mod 的 Localization/*.json
 IClientServices Client { get; }
 IAuthorityServices Authority { get; }
+Security.ISensitiveOperationService Security { get; }
+Storage.IModStorage Storage { get; }
+Security.IModPatchService Patches { get; }
 ```
 
 | 属性 | 专用服 | 联机客户端 | 单人 / 主机 |
@@ -99,6 +102,8 @@ IAuthorityServices Authority { get; }
 | `Authority.IsAuthoritative` | `true` | **`false`** | `true` |
 
 > `Client` 在专用服上为 null，**必须判空**。`Authority` 永不为 null，但动世界状态前要先查 `IsAuthoritative`。
+> `Security` 是按模组身份绑定的敏感操作代理；不要从共享服务总线模拟其他模组的申请。
+> `Storage` 只允许本模组自己的配置文件和包内只读资源；`Patches` 是受限 Terraria patch 代理。
 
 ### `IClientServices`
 
@@ -425,13 +430,22 @@ event Action LanguageChanged;       // 语言变化后触发（首次轮询时�
 
 ### `IServiceRegistry`
 
-跨 mod 服务总线。库模组（如 TIMF.UI）在此注册接口，使用方经 `IModContext.Services` 解析。
+跨 mod 服务解析总线。普通模组经 `IModContext.Services` 解析服务；发布自定义服务必须改走绑定调用方程序集的
+`IModContext.ServicePublisher`。直接调用 `Register` 属于框架可信组件的保留入口，普通模组一旦包含该调用
+痕迹会在加载前被拒绝，避免覆盖 `ISecurityCenter`、反射代理或 UI 服务。
 
 ```csharp
 void Register<TService>(TService instance) where TService : class;
 TService GetService<TService>() where TService : class;
 bool TryGetService<TService>(out TService service) where TService : class;
 ```
+
+```csharp
+// IMyModApi 必须是当前模组程序集自己声明的接口。
+context.ServicePublisher.Publish<IMyModApi>(new MyModApi());
+```
+
+发布器拒绝框架/其他程序集声明的接口、类型不匹配的实例和任何重复注册，因此模组不能抢占或替换既有服务。
 
 ### `IModRegistry` · `IModInfo`
 
@@ -453,10 +467,36 @@ public interface IModInfo
     bool IsEnabled { get; }             // 用户开关；false 则跳过加载 / 权威激活
     bool IsLoaded { get; }              // 本进程已完成 IMod.Load
     bool ServerLogicActive { get; }     // 本次会话已激活其权威半边
-    IModSettings Settings { get; }      // 实现了 IModSettings 且当前已加载时非 null
+    IModSettings Settings { get; }      // 已加载且当前会话允许操作设置时非 null
     bool HasSettings { get; }
 }
 ```
+
+Core 返回的条目还实现可选扩展接口 `IModSessionState`。它没有直接扩展 `IModInfo`，以保持已有消费者的
+二进制兼容；需要会话级控制的 UI 可以用 `info as IModSessionState` 检测：
+
+```csharp
+public interface IModSessionState
+{
+    bool IsSessionAllowed { get; }       // 当前世界/服务器是否允许执行，不改写用户偏好
+    bool CanChangeEnabled { get; }       // 当前是否允许改变主启用开关
+    string InteractionLockReason { get; }
+    bool HasSettingsCapability { get; }  // 类型是否声明了设置页，即使当前被会话锁定
+    bool CanOpenSettings { get; }        // 设置页当前是否允许操作
+}
+```
+
+启停规则：
+
+- 主菜单中可以改变任意非框架模组的用户开关；
+- 进入单人、主机、专用服或联机世界后，任何具有 `Authority` 能力的模组（`Authority` / `Both`）主开关
+  都会锁定，必须返回主菜单才能改变；纯 `Client` 模组仍可本地开关；
+- 联机客户端在握手完成前默认禁止所有本地 `Authority` / `Both` 模组执行；握手完成后只放行服务器公布
+  且本地版本/用户开关匹配的交集；
+- 服务器未启用的本地双端/服务端模组只做**会话级禁用**，不会把持久 `IsEnabled` 偏好写成 false；返回
+  主菜单后恢复；
+- 会话禁用同时门控框架派发的 `PostDraw`、玩家更新、地图覆盖、信息饰品钩子、内容饰品效果和自定义
+  图块/墙壁放置；其设置页必须显示为不可用，不能继续调用 `BuildSettingsUI`。
 
 > 判断「是否破坏原版兼容」时用 `NetProfile`，不要去 switch `Side`。
 
@@ -820,15 +860,104 @@ public sealed class MyChestTile : TimfContainerTile
 种类和规范化目标；模组升级后若目标或能力扩大，必须重新申请。专用服没有交互 UI 时，只接受管理员事先
 配置的精确授权，不能弹窗失败后自动放行。
 
-### 当前实现状态
+### 已实现的授权与警告 UI
 
-当前 public API **尚未提供**权限申请服务，也没有可靠沙箱能够拦截完全信任 DLL 对 `System.IO`、
-`System.Diagnostics.Process` 或原生调用的直接访问。因此本节是后续权限系统的强制安全契约，而不是对
-现版本已完成隔离的虚假声明。
+`IModContext.Security` 提供按模组身份绑定的代理。申请创建后默认是 `Pending`，安全中心会自动打开；用户
+可以拒绝、允许一次、允许到本次 TIMF 进程结束，或持久允许**完全相同**的文件操作。持久授权绑定模组 ID、
+程序集 SHA-256、行为、规范化目标、覆盖意图和用途说明；模组二进制升级或用途改变后必须重新授权。出于
+风险与参数隐私考虑，进程执行只支持单次或当前进程授权，不提供持久授权。Mod Settings
+首页持续显示隔离边界警告，并可随时打开安全中心撤销持久授权。
 
-在权限服务落地前，模组若直接读取工作区外文件、自主写文件或执行 Shell/子进程，即不符合 TIMF 支持的
-安全模组规范，不应进入官方示例或默认分发集合。未来相关 API 必须经框架统一代理，并由框架向用户展示
-授权申请；不能只提供一个返回 `true` 的声明接口而继续允许模组绕过代理直接调用系统 API。
+```csharp
+using TIMF.Abstractions.Security;
+
+// 第一次调用只提交申请，不读取文件。
+var request = context.Security.RequestFileRead(
+    @"D:\Data\example.bin", "Import the map selected by the user");
+
+// 后续帧查询；只有安全中心明确授权后才能通过代理执行。
+request = context.Security.GetRequest(request.Id);
+if (request.Status == SensitiveOperationStatus.Granted)
+{
+    byte[] bytes = context.Security.ReadAllBytes(request.Id);
+}
+```
+
+完整代理表：
+
+| 申请 | 获批后的执行 | 重要约束 |
+|---|---|---|
+| `RequestFileRead(path, purpose)` | `ReadAllBytes(requestId)` | 绝对路径、逐级拒绝重解析点 |
+| `RequestFileWrite(path, overwrite, purpose)` | `WriteAllBytes(requestId, data)` | 精确目标、覆盖意图单独授权、同目录临时文件原子提交 |
+| `RequestProcess(exe, args, cwd, purpose)` | `RunProcess(requestId, timeout)` | exe/cwd 必须是绝对现存路径；不经 Shell；超时上限 5 分钟 |
+
+拒绝、取消、尚未决定、错误类型或不属于本模组的 request ID 都无法执行。单次授权在开始执行前即被消费，
+即使实际 I/O 失败也不会自动恢复。专用服当前没有交互 UI，也没有管理员预授权配置格式，因此申请会直接
+拒绝；TIMF.UI 不可用时也会立即拒绝，等待决定超过五分钟则超时拒绝，不能因为无人点击而默认放行。
+
+### 加载前静态安全审计
+
+模组包中的主程序集和同目录私有依赖会在任何模组构造函数、静态初始化器或 `Load()` 执行之前扫描。
+发现下列痕迹时整个模组会被拒绝加载：
+
+- `System.IO.File`、`Directory`、`FileStream` 等直接文件系统访问（`Path`、内存流和内存文本读写器除外）；
+- `Process` / `ProcessStartInfo`、P/Invoke、内部调用、`calli`、`Marshal` 与原生 DLL；
+- 直接网络、Socket、注册表访问；
+- `Reflection.Emit`、动态程序集加载、反射 `Invoke` / `CreateDelegate`、表达式运行时编译；
+- 直接创建或控制 Harmony patch；
+- 直接调用原始服务注册入口、读取/写入环境变量或运行时编译代码；
+- 在包内捆绑同名 `TIMF.Abstractions` / `TIMF.Content` / Harmony DLL，或发生程序集身份/实际路径冲突；
+- 无法完整解析的方法体、元数据或依赖。审计失败必须拒载，不会退化为警告后继续。
+
+拒载结果会写入核心日志并自动打开安全中心；Mod Settings 首页显示被拒模组数量，安全中心列出程序集、
+方法和命中的 API。框架不会为了让官方模组通过而设置普通模组白名单。唯一不走普通审计的是框架自带
+`TIMF.UI`，它必须同时匹配 `trusted-framework-components.v1` 中由构建流程生成的精确相对路径与 SHA-256；
+文件被替换或清单缺失时同样拒载。
+
+发现阶段不再实例化 `IMod` 来读取名称/版本。简单常量属性通过 IL 元数据读取，其他情况回退到类型名和
+程序集版本，确保审计之前没有模组代码执行窗口。
+
+### 受限存储与兼容代理
+
+普通配置不需要每次弹出敏感授权，但必须走 `IModContext.Storage`：
+
+```csharp
+if (context.Storage.ConfigExists("MyMod.json"))
+    json = context.Storage.ReadConfigText("MyMod.json");
+context.Storage.WriteConfigText("MyMod.json", json);
+
+byte[] icon = context.Storage.ReadContentBytes("Images/Icon.png");
+```
+
+配置被限制在 `config/mod-data/<ModId>/` 下，只接受单一安全文件名并原子写入；包内资源只能从本模组的
+`ContentDirectory` 相对读取，所有路径都会拒绝重解析点和目录逃逸。旧版 `config/<ModId>.json` 在文件名
+与模组 ID 忽略标点后完全相同时由 Core 首次复制到新目录，既保留设置，也不能借此读取其他模组配置。
+
+兼容 Terraria 私有 API 时，禁止直接 `MethodInfo.Invoke` 或 Harmony：
+
+- `ITerrariaReflection.Invoke` 只接受 `Terraria.exe` 声明、名称不含文件/保存/加载等敏感标记，且不接收
+  字符串或流参数的方法；
+- `IModContext.Patches` 只允许对同样通过检查的 Terraria 方法安装 prefix/postfix，回调必须是本模组
+  程序集声明的静态方法；不公开 transpiler、任意 Harmony ID 或 Core/BCL patch 能力。
+
+这些代理用于兼容游戏私有方法，不是绕过 `Security` 的通用反射入口。
+
+### 当前隔离边界
+
+TIMF 现在能够可靠约束的是**经 `IModContext.Security` 代理执行**的操作。普通 .NET Framework 模组 DLL
+仍与游戏同进程、完全信任运行，框架无法可靠拦截它直接调用 `System.IO`、`Process`、P/Invoke 或自行加载
+本机代码。安全中心和 Mod Settings 会明确展示该警告，不把“已有授权 UI”误称为进程沙箱。
+
+因此受支持模组不得绕过代理直接执行上述敏感行为。静态审计会阻断直接调用、普通委托、私有依赖、原生
+依赖、动态调用和直接 Harmony 等常见绕过，但不能数学上证明任意托管程序无恶意行为；混淆器、运行时漏洞
+或未覆盖的间接调用仍可能逃逸。真正的强隔离仍需要把不受信任代码移出 Terraria 进程。
+
+`ISecurityCenter` 只公开待处理/拒载数量、边界警告和打开窗口能力，真正的批准、撤销与审计入口留在 Core
+内部，申请模组不能通过公共服务总线自行批准。
+
+需要人工验证时，可在主菜单打开 **Mod Settings → Content Test Kit → 安全授权管线测试**：提交读取核心
+日志的测试申请后，检查首页待处理警告和安全中心决策；获批后还需再次点击执行，测试只报告字节数，不会
+显示日志内容。
 
 ---
 

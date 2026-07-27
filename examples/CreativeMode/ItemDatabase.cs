@@ -4,6 +4,7 @@ using System.Reflection;
 using Terraria;
 using Terraria.ID;
 using TIMF.Abstractions;
+using TIMF.Abstractions.Security;
 
 namespace CreativeMode
 {
@@ -24,6 +25,7 @@ namespace CreativeMode
     internal sealed class ItemDatabase
     {
         private readonly ILogger _log;
+        private readonly ITerrariaReflection _reflection;
         private readonly List<ItemEntry> _all = new List<ItemEntry>();
         private bool _built;
 
@@ -33,9 +35,10 @@ namespace CreativeMode
         private bool _giveResolved;
         private bool _giveFailed;
 
-        public ItemDatabase(ILogger log)
+        public ItemDatabase(ILogger log, ITerrariaReflection reflection)
         {
             _log = log;
+            _reflection = reflection;
         }
 
         public IReadOnlyList<ItemEntry> All => _all;
@@ -128,14 +131,14 @@ namespace CreativeMode
 
             try
             {
-                var source = _getItemSource.Invoke(player, new object[] { type });
+                var source = _reflection.Invoke(_getItemSource, player, new object[] { type });
                 // QuickSpawnItem drops near the player and pickups into inventory (respecting overflow).
                 // Split into stacks of at most 9999 to stay within vanilla stack handling.
                 var remaining = amount;
                 while (remaining > 0)
                 {
                     var give = Math.Min(remaining, 9999);
-                    _quickSpawn.Invoke(player, new object[] { source, type, give });
+                    _reflection.Invoke(_quickSpawn, player, new object[] { source, type, give });
                     remaining -= give;
                 }
 

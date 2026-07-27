@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using Microsoft.Xna.Framework;
 using Terraria;
 using TIMF.Abstractions;
+using TIMF.Abstractions.Security;
 using TIMF.Content;
 
 namespace ContentTestKit
@@ -24,9 +25,11 @@ namespace ContentTestKit
         private IContentLookup _content;
         private string _status = "";
         private readonly List<string> _probeResults = new List<string>();
+        private SensitiveOperationRequest _securityRequest;
+        private ITerrariaReflection _reflection;
 
         public string Name => "Content Test Kit";
-        public string Version => "1.0.0";
+        public string Version => "1.1.0";
 
         public void AddContent(IContentRegistry registry)
         {
@@ -49,6 +52,7 @@ namespace ContentTestKit
         public void Load(IModContext context)
         {
             _ctx = context;
+            _reflection = context.Services.GetService<ITerrariaReflection>();
             context.Log.Info("ContentTestKit loaded — open Mod Settings (F9) for the content report");
         }
 
@@ -118,10 +122,64 @@ namespace ContentTestKit
                     ui.TextColored(r, r.StartsWith("OK") ? new Color(150, 230, 150) : new Color(255, 120, 120));
             }
 
+            ui.Separator();
+            ui.TextColored("=== 安全授权管线测试 ===", new Color(255, 220, 150));
+            ui.Text("测试目标是 TIMF 核心日志；不会自动读取，授权后仍需再次确认执行。");
+            DrawSecurityTest(ui);
+
             if (!string.IsNullOrEmpty(_status))
             {
                 ui.Separator();
                 ui.TextColored(_status, new Color(200, 220, 160));
+            }
+        }
+
+        private void DrawSecurityTest(IImmediateModeUi ui)
+        {
+            if (_securityRequest != null)
+            {
+                try { _securityRequest = _ctx.Security.GetRequest(_securityRequest.Id); }
+                catch (Exception ex)
+                {
+                    _status = "查询授权失败：" + ex.Message;
+                    _securityRequest = null;
+                }
+            }
+
+            if (_securityRequest == null)
+            {
+                if (ui.Button("申请读取核心日志（仅测试）"))
+                {
+                    try
+                    {
+                        var path = System.IO.Path.Combine(_ctx.HomeDirectory, "logs", "timf-core.log");
+                        _securityRequest = _ctx.Security.RequestFileRead(path,
+                            "ContentTestKit manual authorization UI test; report only the file byte count");
+                        _status = "授权申请已提交，请在 TIMF 安全中心处理";
+                    }
+                    catch (Exception ex) { _status = "提交申请失败：" + ex.Message; }
+                }
+                return;
+            }
+
+            ui.Text("申请状态：" + _securityRequest.Status +
+                (string.IsNullOrEmpty(_securityRequest.DecisionReason) ? "" : " · " + _securityRequest.DecisionReason));
+            if (_securityRequest.Status == SensitiveOperationStatus.Granted &&
+                ui.Button("执行已授权读取（仅显示字节数）"))
+            {
+                try
+                {
+                    var bytes = _ctx.Security.ReadAllBytes(_securityRequest.Id);
+                    _status = "安全代理读取成功：" + bytes.Length + " 字节（未显示内容）";
+                    _securityRequest = null;
+                }
+                catch (Exception ex) { _status = "代理读取失败：" + ex.Message; }
+            }
+            else if (_securityRequest.Status == SensitiveOperationStatus.Denied ||
+                     _securityRequest.Status == SensitiveOperationStatus.Cancelled ||
+                     _securityRequest.Status == SensitiveOperationStatus.Consumed)
+            {
+                if (ui.Button("清除测试结果")) _securityRequest = null;
             }
         }
 
@@ -196,7 +254,7 @@ namespace ContentTestKit
                     ?.GetField("Item", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static);
                 if (field == null) throw new InvalidOperationException("找不到 TextureAssets.Item 字段");
 
-                var arr = field.GetValue(null) as Array;
+                var arr = _reflection.GetFieldValue(field, null) as Array;
                 if (arr == null) throw new InvalidOperationException("TextureAssets.Item 为 null");
                 if (id >= arr.Length)
                     throw new InvalidOperationException("数组长度 " + arr.Length + " 容不下 id " + id);
@@ -204,7 +262,8 @@ namespace ContentTestKit
                 var asset = arr.GetValue(id);
                 if (asset == null) throw new InvalidOperationException("贴图槽位为 null（会导致物品栏绘制中断）");
 
-                var loaded = asset.GetType().GetProperty("IsLoaded")?.GetValue(asset);
+                var loadedProperty = asset.GetType().GetProperty("IsLoaded");
+                var loaded = loadedProperty == null ? null : _reflection.GetPropertyValue(loadedProperty, asset, null);
                 if (loaded is bool b && !b) throw new InvalidOperationException("Asset 未标记为已加载");
             });
             Probe("Lang.GetItemNameValue", () =>
@@ -218,7 +277,7 @@ namespace ContentTestKit
                 var field = type?.GetField("SetsContaining",
                     System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic |
                     System.Reflection.BindingFlags.Static);
-                var outer = field?.GetValue(null) as Array;
+                var outer = field == null ? null : _reflection.GetFieldValue(field, null) as Array;
                 if (outer == null) throw new InvalidOperationException("SetsContaining 为 null");
                 var row = outer.GetValue(id) as Array;
                 if (row == null) throw new InvalidOperationException("模组物品对应行是 null");
@@ -250,7 +309,7 @@ namespace ContentTestKit
                     var field = typeof(Main).Assembly
                         .GetType("Terraria.GameContent.TextureAssets")
                         ?.GetField("Tile", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static);
-                    var arr = field?.GetValue(null) as Array;
+                    var arr = field == null ? null : _reflection.GetFieldValue(field, null) as Array;
                     if (arr == null) throw new InvalidOperationException("TextureAssets.Tile 为 null");
                     if (tileId >= arr.Length) throw new InvalidOperationException("图块贴图数组未扩容");
                     if (arr.GetValue(tileId) == null) throw new InvalidOperationException("图块贴图槽位为 null");
@@ -272,7 +331,7 @@ namespace ContentTestKit
                     var field = typeof(Main).Assembly
                         .GetType("Terraria.GameContent.TextureAssets")
                         ?.GetField("Wall", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static);
-                    var arr = field?.GetValue(null) as Array;
+                    var arr = field == null ? null : _reflection.GetFieldValue(field, null) as Array;
                     if (arr == null || wallId >= arr.Length) throw new InvalidOperationException("墙壁贴图数组未扩容");
                     if (arr.GetValue(wallId) == null) throw new InvalidOperationException("墙壁贴图槽位为 null");
                 });

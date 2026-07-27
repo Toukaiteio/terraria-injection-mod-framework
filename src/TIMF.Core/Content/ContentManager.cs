@@ -24,6 +24,7 @@ namespace TIMF.Core.Content
         private readonly ILogger _log;
         private readonly ContentIdStore _idStore;
         private readonly VanillaArrayExpander _expander;
+        private readonly Func<string, bool> _sessionAllowed;
 
         private readonly List<TimfItem> _pending = new List<TimfItem>();
         private readonly List<TimfTile> _pendingTiles = new List<TimfTile>();
@@ -41,9 +42,10 @@ namespace TIMF.Core.Content
         private readonly Dictionary<string, TimfWall> _wallsByKey =
             new Dictionary<string, TimfWall>(StringComparer.Ordinal);
 
-        public ContentManager(ILogger log, string configDir)
+        public ContentManager(ILogger log, string configDir, Func<string, bool> sessionAllowed = null)
         {
             _log = log;
+            _sessionAllowed = sessionAllowed;
             VanillaItemCount = ReadVanillaItemCount();
             VanillaTileCount = ReadVanillaTileCount();
             VanillaWallCount = ReadVanillaWallCount();
@@ -181,6 +183,26 @@ namespace TIMF.Core.Content
 
         /// <summary>True once the id space has been widened and the arrays actually grown.</summary>
         public bool IsActivated => _activated;
+
+        internal bool IsSessionAllowed(string modId)
+        {
+            return _sessionAllowed == null || _sessionAllowed(modId);
+        }
+
+        internal bool IsSessionAllowed(TimfItem definition)
+        {
+            return definition != null && IsSessionAllowed(definition.ModId);
+        }
+
+        internal bool IsSessionAllowed(TimfTile definition)
+        {
+            return definition != null && IsSessionAllowed(definition.ModId);
+        }
+
+        internal bool IsSessionAllowed(TimfWall definition)
+        {
+            return definition != null && IsSessionAllowed(definition.ModId);
+        }
 
         /// <summary>
         /// Widen the id space. Must run <em>after</em> the game finishes its own content setup.

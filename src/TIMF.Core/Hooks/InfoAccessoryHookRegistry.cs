@@ -10,7 +10,8 @@ namespace TIMF.Core.Hooks
     internal sealed class InfoAccessoryHookRegistry
         : HookRegistryBase<IInfoAccessoryHook>, IInfoAccessoryHookRegistry
     {
-        public InfoAccessoryHookRegistry(ILogger log) : base(log) { }
+        public InfoAccessoryHookRegistry(ILogger log, Func<object, bool> executionAllowed)
+            : base(log, executionAllowed) { }
 
         public void Dispatch(object localPlayer)
         {

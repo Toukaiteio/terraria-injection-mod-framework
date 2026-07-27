@@ -13,12 +13,14 @@ namespace TIMF.Core.Hooks
         private static readonly TimfSide AllowedSide = ReadAllowedSide();
 
         protected readonly ILogger Log;
+        private readonly Func<object, bool> _executionAllowed;
         private readonly List<THook> _hooks = new List<THook>();
         private readonly object _lock = new object();
 
-        protected HookRegistryBase(ILogger log)
+        protected HookRegistryBase(ILogger log, Func<object, bool> executionAllowed)
         {
             Log = log;
+            _executionAllowed = executionAllowed;
         }
 
         public void Add(THook hook)
@@ -57,7 +59,13 @@ namespace TIMF.Core.Hooks
             {
                 if (_hooks.Count == 0)
                     return null;
-                return _hooks.ToArray();
+                if (_executionAllowed == null)
+                    return _hooks.ToArray();
+                var allowed = new List<THook>(_hooks.Count);
+                foreach (var hook in _hooks)
+                    if (_executionAllowed(hook))
+                        allowed.Add(hook);
+                return allowed.Count == 0 ? null : allowed.ToArray();
             }
         }
 

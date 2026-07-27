@@ -1,5 +1,4 @@
 using System;
-using System.IO;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
@@ -32,8 +31,7 @@ namespace HighLight
         public void Load(IModContext context)
         {
             _ctx = context;
-            var cfgPath = Path.Combine(context.ConfigDirectory, "HighLight.json");
-            _config = HighLightConfig.LoadOrCreate(cfgPath);
+            _config = HighLightConfig.LoadOrCreate(context.Storage, "HighLight.json");
             _enabled = _config.Enabled;
             var defaultKey = ParseKey(_config.ToggleKey, Keys.P);
             _keybinds = context.Client != null ? context.Client.Keybinds : null;
@@ -42,7 +40,7 @@ namespace HighLight
             else
                 context.Log.Error("IKeybindService unavailable — HighLight toggle will not work");
             _announcePending = true;
-            context.Log.Info("HighLight loaded. Toggle=" + ToggleId + " default=" + defaultKey + " config=" + cfgPath);
+            context.Log.Info("HighLight loaded. Toggle=" + ToggleId + " default=" + defaultKey);
         }
 
         public void Unload()
@@ -123,7 +121,7 @@ namespace HighLight
         {
             try
             {
-                _config.Save(Path.Combine(_ctx.ConfigDirectory, "HighLight.json"));
+                _config.Save(_ctx.Storage, "HighLight.json");
             }
             catch (Exception ex)
             {
@@ -473,7 +471,7 @@ namespace HighLight
             _config.Enabled = _enabled;
             try
             {
-                _config.Save(Path.Combine(_ctx.ConfigDirectory, "HighLight.json"));
+                _config.Save(_ctx.Storage, "HighLight.json");
             }
             catch { /* ignore */ }
 

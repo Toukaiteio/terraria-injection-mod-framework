@@ -163,9 +163,9 @@ namespace TIMF.Core.Hooks
             _log = log;
             _mods = mods;
             _menuVersion = new MenuVersionOverlay(log);
-            _playerUpdate = new PlayerUpdateHookRegistry(log);
-            _mapOverlay = new MapOverlayHookRegistry(log);
-            _infoAcc = new InfoAccessoryHookRegistry(log);
+            _playerUpdate = new PlayerUpdateHookRegistry(log, mods.IsExecutionAllowed);
+            _mapOverlay = new MapOverlayHookRegistry(log, mods.IsExecutionAllowed);
+            _infoAcc = new InfoAccessoryHookRegistry(log, mods.IsExecutionAllowed);
             _keybinds = new KeybindService(log);
             _contentTextures = new Content.ContentTextureLoader(log, mods.Content);
             _session = new SessionService(log, mods);
@@ -376,9 +376,23 @@ namespace TIMF.Core.Hooks
                 var list = _mods.Mods;
                 for (var i = 0; i < list.Count; i++)
                 {
+                    if (!_mods.IsExecutionAllowed(list[i]))
+                        continue;
                     try { list[i].PostDraw(gameTime ?? new GameTime()); }
                     catch (Exception ex) { _log.Error("PostDraw failed in mod " + list[i].Name, ex); }
                 }
+
+                // Security prompts are framework-owned and drawn after mod UI. A mod can request
+                // that the center opens, but cannot call its internal decision methods.
+                try
+                {
+                    IImmediateModeUi securityUi;
+                    var securityUiAvailable = _mods.Services.TryGetService(out securityUi) && securityUi != null;
+                    _mods.Security.Poll(securityUiAvailable);
+                    if (securityUiAvailable)
+                        _mods.Security.Draw(securityUi);
+                }
+                catch (Exception ex) { _log.Error("Security center UI failed", ex); }
 
                 // Ensure batch is closed again before UI host opens its own.
                 SafeEndSpriteBatch();

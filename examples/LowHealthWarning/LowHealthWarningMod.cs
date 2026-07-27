@@ -1,5 +1,4 @@
 using System;
-using System.IO;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
@@ -31,8 +30,7 @@ namespace LowHealthWarning
         public void Load(IModContext context)
         {
             _ctx = context;
-            var cfgPath = Path.Combine(context.ConfigDirectory, "LowHealthWarning.json");
-            _config = LowHealthWarningConfig.LoadOrCreate(cfgPath);
+            _config = LowHealthWarningConfig.LoadOrCreate(context.Storage, "LowHealthWarning.json");
             _enabled = _config.Enabled;
             var defaultKey = ParseKey(_config.ToggleKey, Keys.Home);
             _keybinds = context.Client != null ? context.Client.Keybinds : null;
@@ -42,7 +40,7 @@ namespace LowHealthWarning
                 context.Log.Error("IKeybindService unavailable — LowHealthWarning toggle will not work");
             _announcePending = true;
             context.Log.Info("LowHealthWarning loaded. Toggle=" + ToggleId + " threshold=" +
-                             _config.ThresholdRatio.ToString("0.##") + " config=" + cfgPath);
+                             _config.ThresholdRatio.ToString("0.##"));
         }
 
         public void Unload()
@@ -93,7 +91,7 @@ namespace LowHealthWarning
         {
             try
             {
-                _config.Save(Path.Combine(_ctx.ConfigDirectory, "LowHealthWarning.json"));
+                _config.Save(_ctx.Storage, "LowHealthWarning.json");
             }
             catch (Exception ex)
             {
@@ -271,7 +269,7 @@ namespace LowHealthWarning
             _config.Enabled = _enabled;
             try
             {
-                _config.Save(Path.Combine(_ctx.ConfigDirectory, "LowHealthWarning.json"));
+                _config.Save(_ctx.Storage, "LowHealthWarning.json");
             }
             catch { /* ignore */ }
 

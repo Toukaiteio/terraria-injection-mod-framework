@@ -1,5 +1,4 @@
 using System;
-using System.IO;
 using Microsoft.Xna.Framework;
 using Terraria;
 using TIMF.Abstractions;
@@ -26,7 +25,7 @@ namespace WeatherControl
         {
             _ctx = context;
             _weather = ResolveWeather(context);
-            _config = WeatherControlConfig.LoadOrCreate(Path.Combine(context.ConfigDirectory, "WeatherControl.json"));
+            _config = WeatherControlConfig.LoadOrCreate(context.Storage, "WeatherControl.json");
             WeatherApplier.Bind(_weather, _config, context.Log);
             context.Log.Info(
                 "WeatherControl Load. Enabled=" + _config.Enabled +
@@ -227,7 +226,7 @@ namespace WeatherControl
         {
             try
             {
-                _config.Save(Path.Combine(_ctx.ConfigDirectory, "WeatherControl.json"));
+                _config.Save(_ctx.Storage, "WeatherControl.json");
                 WeatherApplier.Bind(_weather, _config, _ctx.Log);
             }
             catch (Exception ex)

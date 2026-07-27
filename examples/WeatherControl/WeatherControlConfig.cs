@@ -1,7 +1,7 @@
 using System;
 using System.Globalization;
-using System.IO;
 using System.Text;
+using TIMF.Abstractions.Storage;
 
 namespace WeatherControl
 {
@@ -48,19 +48,19 @@ namespace WeatherControl
         public bool ApplyWind = true;
         public bool ApplySpecialEvents = true;
 
-        public static WeatherControlConfig LoadOrCreate(string path)
+        public static WeatherControlConfig LoadOrCreate(IModStorage storage, string name)
         {
-            if (!File.Exists(path))
+            if (!storage.ConfigExists(name))
             {
                 var c = new WeatherControlConfig();
-                c.Save(path);
+                c.Save(storage, name);
                 return c;
             }
 
             var cfg = new WeatherControlConfig();
             try
             {
-                var t = File.ReadAllText(path);
+                var t = storage.ReadConfigText(name);
                 cfg.Enabled = ReadBool(t, "Enabled", cfg.Enabled);
                 cfg.LockWeather = ReadBool(t, "LockWeather", cfg.LockWeather);
                 cfg.Preset = (WeatherPreset)Clamp(ReadInt(t, "Preset", (int)cfg.Preset), 0, 10);
@@ -82,12 +82,8 @@ namespace WeatherControl
             return cfg;
         }
 
-        public void Save(string path)
+        public void Save(IModStorage storage, string name)
         {
-            var dir = Path.GetDirectoryName(path);
-            if (!string.IsNullOrEmpty(dir))
-                Directory.CreateDirectory(dir);
-
             MoonPhase = Clamp(MoonPhase, 0, 7);
             WindSpeed = ClampF(WindSpeed, -1.5f, 1.5f);
             if ((int)Preset < 0 || (int)Preset > 10)
@@ -108,7 +104,7 @@ namespace WeatherControl
             sb.AppendLine("  \"LanternNight\": " + B(LanternNight) + ",");
             sb.AppendLine("  \"ApplySpecialEvents\": " + B(ApplySpecialEvents));
             sb.AppendLine("}");
-            File.WriteAllText(path, sb.ToString(), Encoding.UTF8);
+            storage.WriteConfigText(name, sb.ToString());
         }
 
         private static string B(bool b) => b ? "true" : "false";

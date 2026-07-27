@@ -4,6 +4,7 @@ using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Terraria;
 using TIMF.Abstractions;
+using TIMF.Abstractions.Security;
 
 namespace WorldMapIcons
 {
@@ -15,6 +16,7 @@ namespace WorldMapIcons
     internal sealed class GameTextures
     {
         private readonly ILogger _log;
+        private readonly ITerrariaReflection _reflection;
 
         private Array _npcAssets;       // TextureAssets.Npc  (Asset<Texture2D>[])
         private Array _projAssets;      // TextureAssets.Projectile
@@ -26,9 +28,10 @@ namespace WorldMapIcons
         private bool _resolved;
         private bool _loggedItemFail;
 
-        public GameTextures(ILogger log)
+        public GameTextures(ILogger log, ITerrariaReflection reflection)
         {
             _log = log;
+            _reflection = reflection;
         }
 
         public bool Ready => Resolve();
@@ -67,7 +70,7 @@ namespace WorldMapIcons
             try
             {
                 var args = new object[] { type, null, null };
-                _getItemDrawFrame.Invoke(null, args);
+                _reflection.Invoke(_getItemDrawFrame, null, args);
                 texture = args[1] as Texture2D;
                 frame = args[2] is Rectangle r ? r : Rectangle.Empty;
                 return texture != null;
@@ -89,7 +92,7 @@ namespace WorldMapIcons
                 return true; // if unknown, don't block
             try
             {
-                var res = _isRevealed.Invoke(_map, new object[] { tileX, tileY });
+                var res = _reflection.Invoke(_isRevealed, _map, new object[] { tileX, tileY });
                 return res is bool b && b;
             }
             catch
@@ -104,7 +107,7 @@ namespace WorldMapIcons
                 return null;
             try
             {
-                return _assetValueProp.GetValue(asset, null) as Texture2D;
+                return _reflection.GetPropertyValue(_assetValueProp, asset, null) as Texture2D;
             }
             catch
             {
@@ -124,8 +127,8 @@ namespace WorldMapIcons
                 var texAssets = asm.GetType("Terraria.GameContent.TextureAssets");
                 if (texAssets != null)
                 {
-                    _npcAssets = texAssets.GetField("Npc", BindingFlags.Public | BindingFlags.Static)?.GetValue(null) as Array;
-                    _projAssets = texAssets.GetField("Projectile", BindingFlags.Public | BindingFlags.Static)?.GetValue(null) as Array;
+                    _npcAssets = _reflection.GetFieldValue(texAssets.GetField("Npc", BindingFlags.Public | BindingFlags.Static), null) as Array;
+                    _projAssets = _reflection.GetFieldValue(texAssets.GetField("Projectile", BindingFlags.Public | BindingFlags.Static), null) as Array;
                 }
 
                 // Asset<Texture2D>.Value property — grab from a sample element type.
@@ -136,7 +139,7 @@ namespace WorldMapIcons
                         _assetValueProp = sample.GetType().GetProperty("Value", BindingFlags.Public | BindingFlags.Instance);
                 }
 
-                _projFrames = typeof(Main).GetField("projFrames", BindingFlags.Public | BindingFlags.Static)?.GetValue(null) as int[];
+                _projFrames = _reflection.GetFieldValue(typeof(Main).GetField("projFrames", BindingFlags.Public | BindingFlags.Static), null) as int[];
 
                 _getItemDrawFrame = typeof(Main).GetMethod(
                     "GetItemDrawFrame",
@@ -146,7 +149,7 @@ namespace WorldMapIcons
                     null);
 
                 var mapProp = typeof(Main).GetProperty("Map", BindingFlags.Public | BindingFlags.Static);
-                _map = mapProp?.GetValue(null, null);
+                _map = mapProp == null ? null : _reflection.GetPropertyValue(mapProp, null, null);
                 if (_map != null)
                 {
                     _isRevealed = _map.GetType().GetMethod(

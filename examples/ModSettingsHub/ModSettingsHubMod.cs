@@ -3,6 +3,7 @@ using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Input;
 using Terraria;
 using TIMF.Abstractions;
+using TIMF.Abstractions.Security;
 
 namespace ModSettingsHub
 {
@@ -25,9 +26,10 @@ namespace ModSettingsHub
         private string _settingsTitle = "Mod Settings";
         private bool _announcePending = true;
         private string _statusLine;
+        private ISecurityCenter _securityCenter;
 
         public string Name => "Mod Settings";
-        public string Version => "1.1.2";
+        public string Version => "1.3.0";
 
         public void Load(IModContext context)
         {
@@ -52,6 +54,7 @@ namespace ModSettingsHub
             _toggle = null;
             _ui = null;
             _registry = null;
+            _securityCenter = null;
             _ctx = null;
         }
 
@@ -83,6 +86,9 @@ namespace ModSettingsHub
 
         private void DrawHub()
         {
+            _ctx.Services.TryGetService(out _securityCenter);
+            DrawSecurityBanner();
+
             var mods = _registry != null ? _registry.Mods : null;
             if (mods == null || mods.Count == 0)
             {
@@ -106,10 +112,10 @@ namespace ModSettingsHub
                         {
                             _selectedId = m.Id;
                             _statusLine = null;
-                            if (m.HasSettings && m.IsLoaded)
+                            if (CanOpenSettings(m))
                                 _settingsOpen = true;
                         }
-                        else if (m.HasSettings && m.IsLoaded)
+                        else if (CanOpenSettings(m))
                         {
                             _settingsOpen = true;
                         }
@@ -124,7 +130,7 @@ namespace ModSettingsHub
             {
                 foreach (var m in mods)
                 {
-                    if (m.HasSettings && m.IsLoaded)
+                    if (CanOpenSettings(m))
                     {
                         selected = m;
                         _selectedId = m.Id;
@@ -153,12 +159,37 @@ namespace ModSettingsHub
             }
         }
 
+        private void DrawSecurityBanner()
+        {
+            if (_securityCenter == null)
+                return;
+
+            var pending = _securityCenter.PendingRequestCount;
+            var blocked = _securityCenter.BlockedModCount;
+            var text = pending > 0
+                ? _ctx.L.Format("Security.Pending", pending)
+                : blocked > 0
+                    ? _ctx.L.Format("Security.Blocked", blocked)
+                : _ctx.L.Get("Security.Warning",
+                    "Security note: mod DLLs are trusted code; direct system calls are not sandboxed.");
+            _ui.TextColored(text, pending > 0 || blocked > 0
+                ? new Color(255, 130, 100)
+                : new Color(230, 180, 100));
+            if (_ui.Button(_ctx.L.Get("Security.Open", "Security & Permissions")))
+                _securityCenter.Show();
+            _ui.Spacing(6f);
+            _ui.Separator();
+        }
+
         private void DrawSelectedDetails(IModInfo selected)
         {
             _ui.Text(selected.Name + "  v" + selected.Version);
 
             var enabled = selected.IsEnabled;
-            var canToggle = !IsProtected(selected.Id);
+            var session = selected as IModSessionState;
+            var canToggle = session != null
+                ? session.CanChangeEnabled
+                : !IsProtected(selected.Id);
             if (canToggle)
             {
                 if (_ui.Checkbox(_ctx.L.Get("UI.Enabled", "Enabled"), ref enabled))
@@ -178,23 +209,39 @@ namespace ModSettingsHub
             }
             else
             {
-                _ui.TextColored(_ctx.L.Get("UI.Protected", "Always on"), new Color(150, 150, 150));
+                var state = enabled
+                    ? _ctx.L.Get("UI.EnabledLockedOn", "Enabled: ON (locked)")
+                    : _ctx.L.Get("UI.EnabledLockedOff", "Enabled: OFF (locked)");
+                _ui.TextColored(state, new Color(150, 150, 150));
+                var lockReason = session?.InteractionLockReason;
+                if (session != null && !session.IsSessionAllowed)
+                    lockReason = _ctx.L.Get("UI.ServerDisabled",
+                        "Not enabled by the current server; controls are unavailable.");
+                else if (!IsProtected(selected.Id))
+                    lockReason = _ctx.L.Get("UI.WorldLocked",
+                        "Return to the main menu to change this mod's enable state.");
+                if (!string.IsNullOrEmpty(lockReason))
+                    _ui.TextColored(lockReason,
+                        session == null || session.IsSessionAllowed
+                            ? new Color(180, 170, 130)
+                            : new Color(255, 150, 100));
             }
 
-            if (selected.HasSettings && selected.IsLoaded)
+            if (CanOpenSettings(selected))
             {
                 if (!_settingsOpen && _ui.Button(_ctx.L.Get("UI.OpenSettings", "Settings")))
                     _settingsOpen = true;
             }
-            else if (!selected.IsLoaded)
+            else if (HasSettingsCapability(selected))
             {
-                _ui.TextColored(_ctx.L.Get("UI.EnableForSettings", "Enable to open settings."), new Color(150, 150, 150));
+                var reason = session?.InteractionLockReason;
+                if (session != null && !session.IsSessionAllowed)
+                    reason = _ctx.L.Get("UI.ServerDisabled",
+                        "Not enabled by the current server; controls are unavailable.");
+                if (string.IsNullOrEmpty(reason))
+                    reason = _ctx.L.Get("UI.EnableForSettings", "Enable to open settings.");
+                _ui.TextColored(reason, new Color(150, 150, 150));
             }
-        }
-
-        private static bool IsProtected(string id)
-        {
-            return string.Equals(id, "TIMF.UI", StringComparison.OrdinalIgnoreCase);
         }
 
         private string FormatListLabel(IModInfo m)
@@ -203,8 +250,11 @@ namespace ModSettingsHub
             // [C]/[P] = no handshake (vanilla clients OK) · [S]/[B] = clients need TIMF
             var side = SideTag(m);
             var en = m.IsEnabled ? "" : _ctx.L.Get("UI.TagOff", " [OFF]");
+            var session = m as IModSessionState;
+            var unavailable = session == null || session.IsSessionAllowed
+                ? "" : _ctx.L.Get("UI.TagServerOff", " [SERVER OFF]");
             var srv = m.ServerLogicActive ? _ctx.L.Get("UI.TagActive", " *") : "";
-            return side + " " + m.Name + en + srv;
+            return side + " " + m.Name + en + unavailable + srv;
         }
 
         /// <summary>
@@ -231,7 +281,7 @@ namespace ModSettingsHub
                 return;
 
             var selected = FindSelected();
-            if (selected == null || !selected.HasSettings || !selected.IsLoaded)
+            if (selected == null || !CanOpenSettings(selected))
             {
                 _settingsOpen = false;
                 return;
@@ -266,6 +316,27 @@ namespace ModSettingsHub
             }
 
             return null;
+        }
+
+        private static bool CanOpenSettings(IModInfo mod)
+        {
+            if (mod == null) return false;
+            var session = mod as IModSessionState;
+            return session != null
+                ? session.CanOpenSettings
+                : mod.HasSettings && mod.IsLoaded;
+        }
+
+        private static bool HasSettingsCapability(IModInfo mod)
+        {
+            if (mod == null) return false;
+            var session = mod as IModSessionState;
+            return session != null ? session.HasSettingsCapability : mod.HasSettings;
+        }
+
+        private static bool IsProtected(string id)
+        {
+            return string.Equals(id, "TIMF.UI", StringComparison.OrdinalIgnoreCase);
         }
 
         private void HandleToggle()

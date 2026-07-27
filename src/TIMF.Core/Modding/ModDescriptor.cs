@@ -34,6 +34,8 @@ namespace TIMF.Core.Modding
         public IMod Instance { get; set; }
         public bool Loaded { get; set; }
         public bool UserEnabled { get; set; } = true;
+        public bool SessionAllowed { get; set; } = true;
+        public string SessionLockReason { get; set; }
         public bool ServerActive { get; set; }
         public IModContext Context { get; set; }
 
@@ -96,18 +98,11 @@ namespace TIMF.Core.Modding
                 EntryType = entryType,
             };
 
-            try
-            {
-                var probe = (IMod)Activator.CreateInstance(entryType);
-                d.Id = probe.Name ?? entryType.Name;
-                d.Version = probe.Version ?? "0.0.0";
-            }
-            catch (Exception ex)
-            {
-                d.Id = entryType.Name;
-                d.Version = "0.0.0";
-                d.FailReason = "Failed to probe IMod: " + ex.Message;
-            }
+            // Do not instantiate mod code during discovery. The package audit must complete
+            // before any mod constructor or static initializer can execute.
+            d.Id = ReadConstantStringProperty(entryType, "Name") ?? entryType.Name;
+            d.Version = ReadConstantStringProperty(entryType, "Version")
+                        ?? asm.GetName().Version?.ToString() ?? "0.0.0";
 
             var attr = (TimfModAttribute)Attribute.GetCustomAttribute(entryType, typeof(TimfModAttribute));
             if (attr != null)
@@ -147,6 +142,21 @@ namespace TIMF.Core.Modding
             }
 
             return d;
+        }
+
+        private static string ReadConstantStringProperty(Type type, string propertyName)
+        {
+            try
+            {
+                var getter = type.GetProperty(propertyName, BindingFlags.Public | BindingFlags.Instance)
+                    ?.GetGetMethod(false);
+                var il = getter?.GetMethodBody()?.GetILAsByteArray();
+                // Release C# expression-bodied/constant getter: ldstr <token>; ret.
+                if (il == null || il.Length != 6 || il[0] != 0x72 || il[5] != 0x2a)
+                    return null;
+                return getter.Module.ResolveString(BitConverter.ToInt32(il, 1));
+            }
+            catch { return null; }
         }
 
         private static void AddCsv(ModDescriptor d, string csv, bool soft)

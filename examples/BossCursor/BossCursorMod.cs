@@ -34,8 +34,7 @@ namespace BossCursor
         public void Load(IModContext context)
         {
             _ctx = context;
-            var cfgPath = Path.Combine(context.ConfigDirectory, "BossCursor.json");
-            _config = BossCursorConfig.LoadOrCreate(cfgPath);
+            _config = BossCursorConfig.LoadOrCreate(context.Storage, "BossCursor.json");
             _enabled = _config.Enabled;
 
             var defaultKey = ParseKey(_config.ToggleKey, Keys.Insert);
@@ -45,7 +44,7 @@ namespace BossCursor
             else
                 context.Log.Error("IKeybindService unavailable — BossCursor toggle will not work");
 
-            context.Log.Info("BossCursor loaded. Toggle=" + ToggleId + " default=" + defaultKey + " config=" + cfgPath);
+            context.Log.Info("BossCursor loaded. Toggle=" + ToggleId + " default=" + defaultKey);
             _announcePending = true;
         }
 
@@ -94,7 +93,7 @@ namespace BossCursor
         {
             try
             {
-                _config.Save(Path.Combine(_ctx.ConfigDirectory, "BossCursor.json"));
+                _config.Save(_ctx.Storage, "BossCursor.json");
             }
             catch (Exception ex)
             {
@@ -284,7 +283,7 @@ namespace BossCursor
             _config.Enabled = _enabled;
             try
             {
-                _config.Save(Path.Combine(_ctx.ConfigDirectory, "BossCursor.json"));
+                _config.Save(_ctx.Storage, "BossCursor.json");
             }
             catch { /* ignore */ }
 
@@ -314,34 +313,18 @@ namespace BossCursor
 
             try
             {
-                var candidates = new[]
-                {
-                    Path.Combine(_ctx.ContentDirectory, "Cursor.png"),
-                    Path.Combine(_ctx.ModDirectory, "Cursor.png"),
-                };
-
-                string found = null;
-                foreach (var c in candidates)
-                {
-                    if (File.Exists(c))
-                    {
-                        found = c;
-                        break;
-                    }
-                }
-
-                if (found == null)
+                if (!_ctx.Storage.ContentExists("Cursor.png"))
                 {
                     _ctx.Log.Warn("Cursor.png not found next to mod; generating fallback triangle texture");
                     _cursorTex = CreateFallbackArrow(Main.instance.GraphicsDevice);
                     return;
                 }
 
-                using (var fs = File.OpenRead(found))
+                using (var fs = new MemoryStream(_ctx.Storage.ReadContentBytes("Cursor.png"), false))
                 {
                     _cursorTex = Texture2D.FromStream(Main.instance.GraphicsDevice, fs);
                 }
-                _ctx.Log.Info("Loaded cursor texture: " + found);
+                _ctx.Log.Info("Loaded bundled Cursor.png through confined storage");
             }
             catch (Exception ex)
             {

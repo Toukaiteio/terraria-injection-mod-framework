@@ -38,7 +38,11 @@ Get-ChildItem $coreDir -Filter "*.dll" | ForEach-Object {
 if (Test-Path $timfUi) {
   $uiDir = Join-Path $Dist "Mods\TIMF.UI"
   New-Item -ItemType Directory -Force -Path $uiDir | Out-Null
-  Copy-Item $timfUi (Join-Path $uiDir "TIMF.UI.dll") -Force
+  $uiOut = Join-Path $uiDir "TIMF.UI.dll"
+  Copy-Item $timfUi $uiOut -Force
+  $uiHash = (Get-FileHash $uiOut -Algorithm SHA256).Hash
+  Set-Content -LiteralPath (Join-Path $Dist "trusted-framework-components.v1") `
+    -Value ($uiHash + "`tMods/TIMF.UI/TIMF.UI.dll") -Encoding ASCII
 } else {
   Write-Warning "Missing TIMF.UI artifact: $timfUi"
 }

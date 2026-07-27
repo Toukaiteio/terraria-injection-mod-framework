@@ -54,6 +54,8 @@ namespace TIMF.Core.Content
         {
             if (_content == null || !_content.IsModdedWall(type))
                 return true;
+            if (!_content.IsSessionAllowed(_content.GetWall(type)))
+                return false;
             if (i <= 1 || j <= 1 || i >= Main.maxTilesX - 2 || j >= Main.maxTilesY - 2)
                 return false;
             var tile = Main.tile[i, j] ?? (Main.tile[i, j] = new Tile());

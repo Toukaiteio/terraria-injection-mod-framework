@@ -1,7 +1,7 @@
 using System;
 using System.Globalization;
-using System.IO;
 using System.Text;
+using TIMF.Abstractions.Storage;
 using Microsoft.Xna.Framework;
 
 namespace HighLight
@@ -54,19 +54,19 @@ namespace HighLight
             }
         }
 
-        public static HighLightConfig LoadOrCreate(string path)
+        public static HighLightConfig LoadOrCreate(IModStorage storage, string name)
         {
-            if (!File.Exists(path))
+            if (!storage.ConfigExists(name))
             {
                 var c = new HighLightConfig();
-                c.Save(path);
+                c.Save(storage, name);
                 return c;
             }
 
             var cfg = new HighLightConfig();
             try
             {
-                var text = File.ReadAllText(path);
+                var text = storage.ReadConfigText(name);
                 cfg.Enabled = ReadBool(text, "Enabled", cfg.Enabled);
                 cfg.ToggleKey = ReadString(text, "ToggleKey", cfg.ToggleKey);
                 cfg.CircleR = ReadInt(text, "CircleR", cfg.CircleR);
@@ -94,12 +94,8 @@ namespace HighLight
             return cfg;
         }
 
-        public void Save(string path)
+        public void Save(IModStorage storage, string name)
         {
-            var dir = Path.GetDirectoryName(path);
-            if (!string.IsNullOrEmpty(dir))
-                Directory.CreateDirectory(dir);
-
             var sb = new StringBuilder();
             sb.AppendLine("{");
             sb.AppendLine("  \"Enabled\": " + (Enabled ? "true" : "false") + ",");
@@ -121,7 +117,7 @@ namespace HighLight
             sb.AppendLine("  \"FillOpacity\": " + FillOpacity.ToString(CultureInfo.InvariantCulture) + ",");
             sb.AppendLine("  \"DrawEveryNFrames\": " + DrawEveryNFrames);
             sb.AppendLine("}");
-            File.WriteAllText(path, sb.ToString(), Encoding.UTF8);
+            storage.WriteConfigText(name, sb.ToString());
         }
 
         private static string Escape(string s)

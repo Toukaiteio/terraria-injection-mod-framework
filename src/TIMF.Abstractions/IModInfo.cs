@@ -31,7 +31,10 @@ namespace TIMF.Abstractions
         /// <summary>True when this session has activated the mod's authority half.</summary>
         bool ServerLogicActive { get; }
 
-        /// <summary>Non-null when the mod implements <see cref="IModSettings"/> and is currently loaded.</summary>
+        /// <summary>
+        /// Non-null when the mod implements <see cref="IModSettings"/>, is loaded, and the
+        /// current session permits opening its settings surface.
+        /// </summary>
         IModSettings Settings { get; }
 
         bool HasSettings { get; }

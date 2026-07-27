@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net48</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <PlatformTarget>x86</PlatformTarget>
+    <AssemblyName>TIMF.SecurityAuditSmoke</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\TIMF.Core\TIMF.Core.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <Reference Include="Terraria">
+      <HintPath>$(TimfTerrariaRef)</HintPath>
+      <Private>true</Private>
+    </Reference>
+    <Reference Include="Microsoft.Xna.Framework">
+      <HintPath>$(TimfXnaDir)\Microsoft.Xna.Framework.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+    <Reference Include="Microsoft.Xna.Framework.Game">
+      <HintPath>$(TimfXnaDir)\Microsoft.Xna.Framework.Game.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+    <Reference Include="Microsoft.Xna.Framework.Graphics">
+      <HintPath>$(TimfXnaDir)\Microsoft.Xna.Framework.Graphics.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+  </ItemGroup>
+</Project>

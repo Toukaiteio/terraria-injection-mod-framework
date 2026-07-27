@@ -10,7 +10,8 @@ namespace TIMF.Core.Hooks
     internal sealed class PlayerUpdateHookRegistry
         : HookRegistryBase<IPlayerUpdateHook>, IPlayerUpdateHookRegistry
     {
-        public PlayerUpdateHookRegistry(ILogger log) : base(log) { }
+        public PlayerUpdateHookRegistry(ILogger log, Func<object, bool> executionAllowed)
+            : base(log, executionAllowed) { }
 
         public void Dispatch()
         {

@@ -3,11 +3,14 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Security.Cryptography;
 using System.Text;
 using TIMF.Abstractions;
 using TIMF.Core.Localization;
 using TIMF.Core.Prefix;
 using TIMF.Core.Session;
+using TIMF.Core.Security;
+using TIMF.Abstractions.Security;
 using TIMF.Core.Weather;
 
 namespace TIMF.Core.Modding
@@ -29,10 +32,14 @@ namespace TIMF.Core.Modding
         private readonly PrefixService _prefixService;
         private readonly AuthorityServices _authorityServices;
         private readonly Content.ContentManager _content;
+        private readonly SecurityManager _security;
         private IClientServices _clientServices;
         private LanguageService _language;
         private bool _isDedicated;
         private bool _serverWarningShown;
+        private TimfSessionKind _sessionKind = TimfSessionKind.Menu;
+        private List<string> _sessionAuthorityAllowList = new List<string>();
+        private bool _sessionRemoteDecisionFinal = true;
 
         public IReadOnlyList<IMod> Mods => _mods;
         public IServiceRegistry Services => _services;
@@ -43,6 +50,34 @@ namespace TIMF.Core.Modding
         public IWeatherService Weather => _weatherService;
         public IPrefixService Prefix => _prefixService;
         public IClientServices ClientServices => _clientServices;
+        internal SecurityManager Security => _security;
+
+        /// <summary>
+        /// Runtime gate used by every framework-dispatched callback. A loaded Both mod may stay
+        /// resident for stable content ids while a remote server suppresses its execution.
+        /// </summary>
+        internal bool IsExecutionAllowed(object participant)
+        {
+            if (participant == null)
+                return false;
+
+            foreach (var d in _descriptors)
+                if (ReferenceEquals(d.Instance, participant))
+                    return d.UserEnabled && d.SessionAllowed && d.Loaded;
+
+            var assembly = participant.GetType().Assembly;
+            foreach (var d in _descriptors)
+            {
+                if (d.Assembly != assembly)
+                    continue;
+                // Helper hook objects cannot be assigned safely when one assembly contains
+                // multiple entry points with different policies, so fail closed unless all
+                // entries in that assembly are executable.
+                if (!d.UserEnabled || !d.SessionAllowed || !d.Loaded)
+                    return false;
+            }
+            return true;
+        }
 
         /// <summary>Registered custom content and the id space it occupies.</summary>
         internal Content.ContentManager Content => _content;
@@ -91,11 +126,14 @@ namespace TIMF.Core.Modding
             _weatherService = new WeatherService(_log);
             _prefixService = new PrefixService();
             _authorityServices = new AuthorityServices(_weatherService, _prefixService);
-            _content = new Content.ContentManager(_log, _configDir);
+            _security = new SecurityManager(_log, _configDir);
+            _content = new Content.ContentManager(_log, _configDir, IsModSessionAllowed);
             _services.Register<ILanguageService>(_language);
             _services.Register<IWeatherService>(_weatherService);
             _services.Register<IPrefixService>(_prefixService);
             _services.Register<IAuthorityServices>(_authorityServices);
+            _services.Register<ITerrariaReflection>(new TerrariaReflectionService());
+            _services.Register<ISecurityCenter>(_security);
             _services.Register<TIMF.Content.IContentLookup>(_content);
         }
 
@@ -108,6 +146,13 @@ namespace TIMF.Core.Modding
             _clientServices = client;
             if (client != null)
                 _services.Register<IClientServices>(client);
+        }
+
+        private bool IsModSessionAllowed(string modId)
+        {
+            var d = _descriptors.FirstOrDefault(x =>
+                string.Equals(x.Id, modId, StringComparison.OrdinalIgnoreCase));
+            return d != null && d.UserEnabled && d.SessionAllowed;
         }
 
         public void LoadAll()
@@ -363,9 +408,9 @@ namespace TIMF.Core.Modding
                 if (_activeServerIds.Contains(d.Id))
                     continue;
 
-                if (!d.UserEnabled)
+                if (!d.UserEnabled || !d.SessionAllowed)
                 {
-                    _log.Info("ActivateServerMods: skip user-disabled " + d.Id);
+                    _log.Info("ActivateServerMods: skip disabled/session-blocked " + d.Id);
                     continue;
                 }
 
@@ -453,6 +498,71 @@ namespace TIMF.Core.Modding
         }
 
         /// <summary>
+        /// Applies the current world's execution policy without changing persisted user
+        /// preferences. On join clients, authority-capable mods run only when advertised by
+        /// the host; pure client mods remain local and freely switchable.
+        /// </summary>
+        public void ApplySessionPolicy(
+            TimfSessionKind kind,
+            IEnumerable<string> allowedAuthorityIds,
+            bool remoteDecisionFinal)
+        {
+            _sessionKind = kind;
+            var allowed = new HashSet<string>(
+                allowedAuthorityIds ?? Enumerable.Empty<string>(),
+                StringComparer.OrdinalIgnoreCase);
+            _sessionAuthorityAllowList = allowed.ToList();
+            _sessionRemoteDecisionFinal = remoteDecisionFinal;
+
+            foreach (var d in _descriptors)
+            {
+                d.SessionAllowed = true;
+                d.SessionLockReason = null;
+                if (kind != TimfSessionKind.MultiplayerClient || !d.ParticipatesInServer)
+                    continue;
+
+                d.SessionAllowed = allowed.Contains(d.Id);
+                if (!d.SessionAllowed)
+                    d.SessionLockReason = remoteDecisionFinal
+                        ? "This mod is not enabled by the current server."
+                        : "Waiting for the server mod handshake.";
+            }
+
+            // A client-only companion must not execute when one of its hard dependencies was
+            // suppressed by the server. Resolve transitively and retain the first clear reason.
+            bool changed;
+            do
+            {
+                changed = false;
+                foreach (var d in _descriptors)
+                {
+                    if (!d.SessionAllowed)
+                        continue;
+                    foreach (var dep in d.Deps)
+                    {
+                        if (dep.Soft)
+                            continue;
+                        var target = _descriptors.FirstOrDefault(x =>
+                            string.Equals(x.Id, dep.Id, StringComparison.OrdinalIgnoreCase));
+                        if (target == null || (target.UserEnabled && target.SessionAllowed))
+                            continue;
+                        d.SessionAllowed = false;
+                        d.SessionLockReason = "Dependency '" + dep.Id
+                                              + "' is unavailable in the current session.";
+                        changed = true;
+                        break;
+                    }
+                }
+            } while (changed);
+
+            RebuildRegistry();
+            var blocked = _descriptors.Count(d => d.UserEnabled && !d.SessionAllowed);
+            _log.Info("Session mod policy: kind=" + kind + ", authority allow-list="
+                      + allowed.Count + ", session-blocked=" + blocked
+                      + (remoteDecisionFinal ? " [final]" : " [pending]"));
+        }
+
+        /// <summary>
         /// Enable/disable a mod at runtime. Persists preference; may Load/Unload immediately.
         /// Framework mods (TIMF.UI) cannot be disabled.
         /// </summary>
@@ -485,6 +595,14 @@ namespace TIMF.Core.Modding
                 return true;
             }
 
+            if (_sessionKind != TimfSessionKind.Menu && d.ParticipatesInServer)
+            {
+                message = d.Id + " cannot be enabled or disabled while a world/session is active. "
+                          + "Return to the main menu first.";
+                _log.Warn("Enablement change rejected: " + message);
+                return false;
+            }
+
             if (!enabled)
             {
                 // Disabling: tear down server path then unload if loaded.
@@ -505,7 +623,7 @@ namespace TIMF.Core.Modding
                 d.UserEnabled = false;
                 _enablement.SetEnabled(d.Id, false);
                 _serverCatalog.Rebuild(_descriptors.Where(x => x.UserEnabled));
-                RebuildRegistry();
+                ReapplySessionPolicy();
                 message = d.Id + " disabled. It will stay off until re-enabled (restart not required for client/server path).";
                 _log.Info(message);
                 return true;
@@ -558,13 +676,21 @@ namespace TIMF.Core.Modding
             {
                 _log.Error("Enable/load failed for " + d.Id, ex);
                 message = "Enabled in config but load failed: " + ex.Message;
-                RebuildRegistry();
+                ReapplySessionPolicy();
                 return false;
             }
 
-            RebuildRegistry();
+            ReapplySessionPolicy();
             _log.Info(message);
             return true;
+        }
+
+        private void ReapplySessionPolicy()
+        {
+            ApplySessionPolicy(
+                _sessionKind,
+                _sessionAuthorityAllowList.ToArray(),
+                _sessionRemoteDecisionFinal);
         }
 
         private static bool ShouldActivateServerNow()
@@ -573,6 +699,8 @@ namespace TIMF.Core.Modding
             {
                 if (Terraria.Main.dedServ)
                     return true;
+                if (Terraria.Main.gameMenu)
+                    return false;
                 // 0 = singleplayer, 2 = listen server / host
                 return Terraria.Main.netMode == 0 || Terraria.Main.netMode == 2;
             }
@@ -694,12 +822,41 @@ namespace TIMF.Core.Modding
                     d.Side,
                     d.NetProfile,
                     d.UserEnabled,
+                    d.SessionAllowed,
+                    CanChangeEnabled(d),
+                    InteractionLockReason(d),
                     d.Loaded,
                     d.ServerActive,
+                    typeof(IModSettings).IsAssignableFrom(d.EntryType),
+                    d.UserEnabled && d.SessionAllowed && d.Loaded
+                        && d.Instance is IModSettings,
                     d.Instance));
             }
             _services.Register<IModRegistry>(registry);
             _log.Debug("IModRegistry updated: " + registry.Mods.Count + " mod(s)");
+        }
+
+        private bool CanChangeEnabled(ModDescriptor d)
+        {
+            return d != null
+                   && !IsFrameworkProtected(d.Id)
+                   && (_sessionKind == TimfSessionKind.Menu || !d.ParticipatesInServer);
+        }
+
+        private string InteractionLockReason(ModDescriptor d)
+        {
+            if (d == null) return "Mod information is unavailable.";
+            if (IsFrameworkProtected(d.Id))
+                return "Framework library mods are always enabled.";
+            if (!d.SessionAllowed)
+                return d.SessionLockReason ?? "Unavailable in the current session.";
+            if (_sessionKind != TimfSessionKind.Menu && d.ParticipatesInServer)
+                return "Enablement is locked while a world/session is active.";
+            if (!d.UserEnabled)
+                return "Enable the mod from the main menu to open its settings.";
+            if (!d.Loaded)
+                return "The mod is not loaded in this process.";
+            return null;
         }
 
         private static string FormatSide(ModDescriptor d)
@@ -745,6 +902,17 @@ namespace TIMF.Core.Modding
 
         private void DiscoverOne(string path)
         {
+            var safetyFindings = IsTrustedFrameworkComponent(path)
+                ? new List<TIMF.Core.Security.AssemblySafetyFinding>()
+                : TIMF.Core.Security.AssemblySafetyScanner.ScanModPackage(path);
+            if (safetyFindings.Count > 0)
+            {
+                _security.RecordBlockedLoad(safetyFindings);
+                _log.Error("Security audit rejected " + Path.GetFileName(path) + ": " +
+                           string.Join(" | ", safetyFindings.Take(8).Select(x => x.ToString())));
+                return;
+            }
+
             var asm = Assembly.LoadFrom(path);
             var entryType = FindModType(asm);
             if (entryType == null)
@@ -772,6 +940,48 @@ namespace TIMF.Core.Modding
                 _log.Error("Mod '" + d.Id + "' classification failed: " + d.FailReason);
         }
 
+        private bool IsTrustedFrameworkComponent(string path)
+        {
+            try
+            {
+                var packageDir = Path.GetDirectoryName(path);
+                if (string.IsNullOrEmpty(packageDir) ||
+                    Directory.GetFiles(packageDir, "*.dll", SearchOption.TopDirectoryOnly).Length != 1)
+                {
+                    _log.Error("Trusted framework component package contains unexpected DLLs: " + packageDir);
+                    return false;
+                }
+                var relative = Path.GetFullPath(path).Substring(Path.GetFullPath(_home)
+                    .TrimEnd(Path.DirectorySeparatorChar).Length).TrimStart(Path.DirectorySeparatorChar)
+                    .Replace('\\', '/');
+                var manifest = Path.Combine(_home, "trusted-framework-components.v1");
+                if (!File.Exists(manifest)) return false;
+                foreach (var line in File.ReadAllLines(manifest))
+                {
+                    var parts = line.Split('\t');
+                    if (parts.Length != 2 || !string.Equals(parts[1], relative, StringComparison.OrdinalIgnoreCase))
+                        continue;
+                    using (var sha = SHA256.Create())
+                    using (var stream = File.OpenRead(path))
+                    {
+                        var actual = BitConverter.ToString(sha.ComputeHash(stream)).Replace("-", "");
+                        if (string.Equals(actual, parts[0], StringComparison.OrdinalIgnoreCase))
+                        {
+                            _log.Info("Trusted framework component hash verified: " + relative);
+                            return true;
+                        }
+                    }
+                    _log.Error("Trusted framework component hash mismatch: " + relative);
+                    return false;
+                }
+            }
+            catch (Exception ex)
+            {
+                _log.Error("Framework component trust verification failed for " + path, ex);
+            }
+            return false;
+        }
+
         private void LoadOne(ModDescriptor d)
         {
             if (d.Loaded && d.Instance != null)
@@ -790,6 +1000,8 @@ namespace TIMF.Core.Modding
             d.Version = mod.Version ?? d.Version;
 
             var modDir = Path.GetDirectoryName(d.Path) ?? _modsDir;
+            var contentDir = Directory.Exists(Path.Combine(modDir, "Content"))
+                ? Path.Combine(modDir, "Content") : modDir;
             var modLog = new Logging.FileLogger(
                 Path.Combine(_home, "logs", "mod-" + Sanitize(d.Id) + ".log"),
                 d.Id);
@@ -799,7 +1011,10 @@ namespace TIMF.Core.Modding
             IClientServices client = _isDedicated ? null : _clientServices;
             var ctx = new ModContext(
                 modLog, _home, _configDir, modDir, d.Path, _services, loc,
-                client, _authorityServices);
+                client, _authorityServices, _security.CreateFacade(d.Id, d.Path),
+                new Security.ModStorage(_configDir, d.Id, contentDir),
+                new Security.ModPatchService(d.Id, d.Assembly),
+                new ModServicePublisher(_services, d.Assembly, d.Id));
             d.Context = ctx;
 
             _log.Info("Loading mod " + d.Id + " v" + d.Version + " side=" + d.Side + " from " + Path.GetFileName(d.Path));

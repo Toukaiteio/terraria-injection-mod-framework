@@ -1,6 +1,6 @@
 using System;
-using System.IO;
 using System.Text;
+using TIMF.Abstractions.Storage;
 
 namespace IHaveMyPhoneAnyway
 {
@@ -17,19 +17,19 @@ namespace IHaveMyPhoneAnyway
         public bool Detection = true;
         public bool Movement = true;
 
-        public static PhoneConfig LoadOrCreate(string path)
+        public static PhoneConfig LoadOrCreate(IModStorage storage, string name)
         {
-            if (!File.Exists(path))
+            if (!storage.ConfigExists(name))
             {
                 var c = new PhoneConfig();
-                c.Save(path);
+                c.Save(storage, name);
                 return c;
             }
 
             var cfg = new PhoneConfig();
             try
             {
-                var t = File.ReadAllText(path);
+                var t = storage.ReadConfigText(name);
                 cfg.Enabled = ReadBool(t, "Enabled", cfg.Enabled);
                 cfg.Clock = ReadBool(t, "Clock", cfg.Clock);
                 cfg.PositionAndDepth = ReadBool(t, "PositionAndDepth", cfg.PositionAndDepth);
@@ -48,12 +48,8 @@ namespace IHaveMyPhoneAnyway
             return cfg;
         }
 
-        public void Save(string path)
+        public void Save(IModStorage storage, string name)
         {
-            var dir = Path.GetDirectoryName(path);
-            if (!string.IsNullOrEmpty(dir))
-                Directory.CreateDirectory(dir);
-
             var sb = new StringBuilder();
             sb.AppendLine("{");
             sb.AppendLine("  \"Enabled\": " + B(Enabled) + ",");
@@ -66,7 +62,7 @@ namespace IHaveMyPhoneAnyway
             sb.AppendLine("  \"Detection\": " + B(Detection) + ",");
             sb.AppendLine("  \"Movement\": " + B(Movement));
             sb.AppendLine("}");
-            File.WriteAllText(path, sb.ToString(), Encoding.UTF8);
+            storage.WriteConfigText(name, sb.ToString());
         }
 
         private static string B(bool b) => b ? "true" : "false";

@@ -1,7 +1,7 @@
 using System;
 using System.Globalization;
-using System.IO;
 using System.Text;
+using TIMF.Abstractions.Storage;
 
 namespace LootRates
 {
@@ -13,19 +13,19 @@ namespace LootRates
         /// <summary>Coin drop multiplier applied as additional DropMoney calls (1 = vanilla).</summary>
         public float CoinMultiplier = 2f;
 
-        public static LootRatesConfig LoadOrCreate(string path)
+        public static LootRatesConfig LoadOrCreate(IModStorage storage, string name)
         {
-            if (!File.Exists(path))
+            if (!storage.ConfigExists(name))
             {
                 var c = new LootRatesConfig();
-                c.Save(path);
+                c.Save(storage, name);
                 return c;
             }
 
             var cfg = new LootRatesConfig();
             try
             {
-                var t = File.ReadAllText(path);
+                var t = storage.ReadConfigText(name);
                 cfg.Enabled = ReadBool(t, "Enabled", cfg.Enabled);
                 cfg.ExtraItemRolls = ClampRolls(ReadInt(t, "ExtraItemRolls", cfg.ExtraItemRolls));
                 cfg.CoinMultiplier = ClampCoin(ReadFloat(t, "CoinMultiplier", cfg.CoinMultiplier));
@@ -38,12 +38,8 @@ namespace LootRates
             return cfg;
         }
 
-        public void Save(string path)
+        public void Save(IModStorage storage, string name)
         {
-            var dir = Path.GetDirectoryName(path);
-            if (!string.IsNullOrEmpty(dir))
-                Directory.CreateDirectory(dir);
-
             ExtraItemRolls = ClampRolls(ExtraItemRolls);
             CoinMultiplier = ClampCoin(CoinMultiplier);
 
@@ -53,7 +49,7 @@ namespace LootRates
             sb.AppendLine("  \"ExtraItemRolls\": " + ExtraItemRolls.ToString(CultureInfo.InvariantCulture) + ",");
             sb.AppendLine("  \"CoinMultiplier\": " + CoinMultiplier.ToString(CultureInfo.InvariantCulture));
             sb.AppendLine("}");
-            File.WriteAllText(path, sb.ToString(), Encoding.UTF8);
+            storage.WriteConfigText(name, sb.ToString());
         }
 
         public static int ClampRolls(int v)

@@ -1,5 +1,4 @@
 using System;
-using System.IO;
 using Microsoft.Xna.Framework;
 using Terraria;
 using TIMF.Abstractions;
@@ -28,8 +27,7 @@ namespace IHaveMyPhoneAnyway
         public void Load(IModContext context)
         {
             _ctx = context;
-            var cfgPath = Path.Combine(context.ConfigDirectory, "IHaveMyPhoneAnyway.json");
-            _config = PhoneConfig.LoadOrCreate(cfgPath);
+            _config = PhoneConfig.LoadOrCreate(context.Storage, "IHaveMyPhoneAnyway.json");
 
             if (context.Client != null && context.Client.InfoAccessories != null)
             {
@@ -122,7 +120,7 @@ namespace IHaveMyPhoneAnyway
         {
             try
             {
-                _config.Save(Path.Combine(_ctx.ConfigDirectory, "IHaveMyPhoneAnyway.json"));
+                _config.Save(_ctx.Storage, "IHaveMyPhoneAnyway.json");
             }
             catch (Exception ex)
             {

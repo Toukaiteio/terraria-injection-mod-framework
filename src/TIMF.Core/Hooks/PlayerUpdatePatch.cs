@@ -48,6 +48,21 @@ namespace TIMF.Core.Hooks
                 if (__instance.whoAmI != Main.myPlayer)
                     return;
 
+                // A custom item owned by a Both/Authority content mod becomes inert when the
+                // remote server did not advertise that mod. Keep it visible/safe in inventory,
+                // but never let the client use it against an incompatible server.
+                try
+                {
+                    var held = __instance.HeldItem;
+                    if (held != null
+                        && !Content.ItemContentPatches.IsItemSessionAllowed(held.type))
+                    {
+                        __instance.controlUseItem = false;
+                        __instance.controlUseTile = false;
+                    }
+                }
+                catch { /* item gate must not break ItemCheck */ }
+
                 _depth++;
                 try
                 {

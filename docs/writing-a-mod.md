@@ -3,8 +3,11 @@
 从零到能跑的最短路径。API 细节见 [api-reference.md](./api-reference.md)，侧别概念见 [side-model.md](./side-model.md)。
 
 > **安全要求：** 模组被加载不等于获得本机权限。不要直接读取 `ModDirectory` / `ContentDirectory` 之外
-> 的文件，不要自主写文件，也不要调用 Shell、脚本或 `Process.Start`。这些行为属于敏感权限，必须经
-> 框架授权并由框架告知用户；当前版本尚未公开权限服务，因此安全模组应避免这些行为。
+> 的文件，不要自主写文件，也不要调用 Shell、脚本或 `Process.Start`。这些行为必须经
+> `context.Security` 提交精确申请，并在用户授权后由同一个框架代理执行。TIMF 会明确警告：当前同进程
+> .NET DLL 仍不是可靠沙箱，直接系统调用无法被完全拦截，因此受支持模组不得绕过代理。
+> 加载器会在执行任何模组代码前扫描主 DLL 和私有依赖；直接文件/进程/网络/PInvoke、动态调用、直接
+> Harmony 等痕迹会导致整个模组拒载。
 
 ## 1. 建工程
 
@@ -136,6 +139,9 @@ public void Load(IModContext context)
     // 跨 mod 服务总线
     if (context.Services.TryGetService(out IWeatherService w)) { }
 
+    // 发布本程序集声明的接口；不可覆盖框架或其他模组服务
+    context.ServicePublisher.Publish<IMyModApi>(new MyModApi());
+
     // 本 mod 的 Localization/*.json
     var title = context.L.Get("Window.Title", "My Mod");
 }
@@ -153,6 +159,11 @@ public void Load(IModContext context)
 | 注册热键（进原版设置界面） | `IKeybindService.Register("MyMod.Toggle", ...)` |
 | 提供设置页 | `IModSettings` |
 | 改天气 | `IAuthorityServices.Weather` |
+| 读取外部文件、写文件或执行进程 | `IModContext.Security` 申请并代理执行 |
+| 保存本模组配置 / 读取包内资源 | `IModContext.Storage`（受限目录，无需敏感授权） |
+| 反射调用 Terraria 私有方法 | `ITerrariaReflection` |
+| 对 Terraria 方法做兼容 patch | `IModContext.Patches`（只允许 prefix/postfix） |
+| 发布本模组声明的跨模组接口 | `IModContext.ServicePublisher.Publish<T>()` |
 | 依赖别的 mod | `[TimfDependsOn("OtherMod", MinVersion = "1.2.0")]` / `[TimfLoadAfter("OtherMod")]` |
 
 ## 6. 本地化
@@ -167,14 +178,23 @@ public void Load(IModContext context)
 
 ## 7. 构建与调试
 
+仓库只把以下 10 个模组作为公开示例维护：`BossCursor`、`ContentTestKit`、`CreativeMode`、`HighLight`、
+`I-Have-My-Phone-Anyway`、`LootRates`、`LowHealthWarning`、`ModSettingsHub`、`WeatherControl`、
+`WorldMapIcons`。它们位于 `examples/`；其他模组不属于公开示例集合。
+
 ```powershell
 .\build.ps1 Release        # 必须先构建框架，mods 引用其产物
+.\build-examples.ps1 Release # 只构建并部署上述公开示例
 .\build-mods.ps1 Release   # 编译并部署 mods\* → dist\Mods\<Id>\
 ```
 
 然后运行 `dist\TIMF.Launcher.exe`。日志在 `dist\logs\`。
 
 按 **F9** 打开 Mod Settings 中心（由 `ModSettingsHub` 提供），可以查看每个 mod 的侧别/协议档、启停状态，并打开其设置页。
+
+进入世界后，`Authority` / `Both` 模组的主启用开关会被锁定；只有纯 `Client` 模组可以继续本地切换。
+加入服务器时，服务器未启用的双端/服务端模组会显示“服务器未启用”，框架不会派发其常规钩子，也不会
+开放其设置页。这个状态只影响当前会话，不会覆盖用户在主菜单保存的启用偏好。
 
 ## 8. 检查清单
 
@@ -184,4 +204,6 @@ public void Load(IModContext context)
 - [ ] `IModSettings.BuildSettingsUI` 里没有调 `Begin`/`End` 吧
 - [ ] `IMapOverlayHook.OnDrawMap` 里没有调 SpriteBatch 的 `Begin`/`End` 吧
 - [ ] 键位 id 用了 `"ModId.Action"` 这种全局唯一格式吗
+- [ ] 敏感文件/进程操作是否只走 `context.Security`，并提供了具体、用户可读的用途说明
+- [ ] 是否没有直接调用 `File` / `Directory` / `Process` / PInvoke / Harmony / `MethodInfo.Invoke`
 - [ ] 确实需要 `Net = Required` 吗（它会踢掉原版玩家）

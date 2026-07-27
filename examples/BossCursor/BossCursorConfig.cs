@@ -1,7 +1,7 @@
 using System;
 using System.Globalization;
-using System.IO;
 using System.Text;
+using TIMF.Abstractions.Storage;
 
 namespace BossCursor
 {
@@ -15,19 +15,19 @@ namespace BossCursor
         /// <summary>XNA Keys enum name. Default Insert (F8 is vanilla debug menu).</summary>
         public string ToggleKey = "Insert";
 
-        public static BossCursorConfig LoadOrCreate(string path)
+        public static BossCursorConfig LoadOrCreate(IModStorage storage, string name)
         {
-            if (!File.Exists(path))
+            if (!storage.ConfigExists(name))
             {
                 var c = new BossCursorConfig();
-                c.Save(path);
+                c.Save(storage, name);
                 return c;
             }
 
             var cfg = new BossCursorConfig();
             try
             {
-                var text = File.ReadAllText(path);
+                var text = storage.ReadConfigText(name);
                 cfg.Enabled = ReadBool(text, "Enabled", cfg.Enabled);
                 cfg.CursorSize = ReadFloat(text, "CursorSize", cfg.CursorSize);
                 cfg.CursorDistance = ReadFloat(text, "CursorDistance", cfg.CursorDistance);
@@ -42,12 +42,8 @@ namespace BossCursor
             return cfg;
         }
 
-        public void Save(string path)
+        public void Save(IModStorage storage, string name)
         {
-            var dir = Path.GetDirectoryName(path);
-            if (!string.IsNullOrEmpty(dir))
-                Directory.CreateDirectory(dir);
-
             var sb = new StringBuilder();
             sb.AppendLine("{");
             sb.AppendLine("  \"Enabled\": " + (Enabled ? "true" : "false") + ",");
@@ -57,7 +53,7 @@ namespace BossCursor
             sb.AppendLine("  \"BlackListPillars\": " + (BlackListPillars ? "true" : "false") + ",");
             sb.AppendLine("  \"ToggleKey\": \"" + (ToggleKey ?? "F8") + "\"");
             sb.AppendLine("}");
-            File.WriteAllText(path, sb.ToString(), Encoding.UTF8);
+            storage.WriteConfigText(name, sb.ToString());
         }
 
         private static bool ReadBool(string json, string key, bool fallback)

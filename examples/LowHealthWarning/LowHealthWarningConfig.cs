@@ -1,7 +1,7 @@
 using System;
 using System.Globalization;
-using System.IO;
 using System.Text;
+using TIMF.Abstractions.Storage;
 using Microsoft.Xna.Framework;
 
 namespace LowHealthWarning
@@ -41,19 +41,19 @@ namespace LowHealthWarning
             }
         }
 
-        public static LowHealthWarningConfig LoadOrCreate(string path)
+        public static LowHealthWarningConfig LoadOrCreate(IModStorage storage, string name)
         {
-            if (!File.Exists(path))
+            if (!storage.ConfigExists(name))
             {
                 var c = new LowHealthWarningConfig();
-                c.Save(path);
+                c.Save(storage, name);
                 return c;
             }
 
             var cfg = new LowHealthWarningConfig();
             try
             {
-                var text = File.ReadAllText(path);
+                var text = storage.ReadConfigText(name);
                 cfg.Enabled = ReadBool(text, "Enabled", cfg.Enabled);
                 cfg.ToggleKey = ReadString(text, "ToggleKey", cfg.ToggleKey);
                 cfg.ThresholdRatio = ReadFloat(text, "ThresholdRatio", cfg.ThresholdRatio);
@@ -75,12 +75,8 @@ namespace LowHealthWarning
             return cfg;
         }
 
-        public void Save(string path)
+        public void Save(IModStorage storage, string name)
         {
-            var dir = Path.GetDirectoryName(path);
-            if (!string.IsNullOrEmpty(dir))
-                Directory.CreateDirectory(dir);
-
             var sb = new StringBuilder();
             sb.AppendLine("{");
             sb.AppendLine("  \"Enabled\": " + (Enabled ? "true" : "false") + ",");
@@ -96,7 +92,7 @@ namespace LowHealthWarning
             sb.AppendLine("  \"ColorG\": " + ColorG + ",");
             sb.AppendLine("  \"ColorB\": " + ColorB);
             sb.AppendLine("}");
-            File.WriteAllText(path, sb.ToString(), Encoding.UTF8);
+            storage.WriteConfigText(name, sb.ToString());
         }
 
         private static string Escape(string s)

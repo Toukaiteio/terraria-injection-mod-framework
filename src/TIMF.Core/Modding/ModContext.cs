@@ -1,5 +1,7 @@
 using System.IO;
 using TIMF.Abstractions;
+using TIMF.Abstractions.Security;
+using TIMF.Abstractions.Storage;
 
 namespace TIMF.Core.Modding
 {
@@ -15,6 +17,10 @@ namespace TIMF.Core.Modding
         public IModLocalization L { get; }
         public IClientServices Client { get; }
         public IAuthorityServices Authority { get; }
+        public ISensitiveOperationService Security { get; }
+        public IModStorage Storage { get; }
+        public IModPatchService Patches { get; }
+        public IModServicePublisher ServicePublisher { get; }
 
         public ModContext(
             ILogger log,
@@ -25,7 +31,11 @@ namespace TIMF.Core.Modding
             IServiceRegistry services,
             IModLocalization localization,
             IClientServices client,
-            IAuthorityServices authority)
+            IAuthorityServices authority,
+            ISensitiveOperationService security,
+            IModStorage storage,
+            IModPatchService patches,
+            IModServicePublisher servicePublisher)
         {
             Log = log;
             HomeDirectory = home;
@@ -36,6 +46,10 @@ namespace TIMF.Core.Modding
             L = localization;
             Client = client;
             Authority = authority;
+            Security = security;
+            Storage = storage;
+            Patches = patches;
+            ServicePublisher = servicePublisher;
 
             var content = Path.Combine(modDir ?? "", "Content");
             ContentDirectory = Directory.Exists(content) ? content : modDir;

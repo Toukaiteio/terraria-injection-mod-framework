@@ -1,10 +1,10 @@
 using System;
-using System.IO;
 using System.Reflection;
 using HarmonyLib;
 using Microsoft.Xna.Framework;
 using Terraria;
 using TIMF.Abstractions;
+using TIMF.Abstractions.Security;
 
 namespace LootRates
 {
@@ -25,7 +25,7 @@ namespace LootRates
     {
         private IModContext _ctx;
         private LootRatesConfig _config;
-        private Harmony _harmony;
+        private IModPatchService _patches;
         private bool _hooksLive;
 
         // Guard re-entrancy when we re-invoke loot helpers from postfixes.
@@ -39,13 +39,16 @@ namespace LootRates
         internal static ILogger ActiveLog;
         internal static MethodInfo DropItemsMethod;
         internal static MethodInfo DropMoneyMethod;
+        internal static ITerrariaReflection Reflection;
 
         public void Load(IModContext context)
         {
             _ctx = context;
-            _config = LootRatesConfig.LoadOrCreate(Path.Combine(context.ConfigDirectory, "LootRates.json"));
+            _patches = context.Patches;
+            _config = LootRatesConfig.LoadOrCreate(context.Storage, "LootRates.json");
             ActiveConfig = _config;
             ActiveLog = context.Log;
+            Reflection = context.Services.GetService<ITerrariaReflection>();
 
             try
             {
@@ -70,6 +73,7 @@ namespace LootRates
             ActiveLog = null;
             DropItemsMethod = null;
             DropMoneyMethod = null;
+            Reflection = null;
             _ctx = null;
         }
 
@@ -130,7 +134,7 @@ namespace LootRates
                 try
                 {
                     _config.CoinMultiplier = LootRatesConfig.ClampCoin(_config.CoinMultiplier);
-                    _config.Save(Path.Combine(_ctx.ConfigDirectory, "LootRates.json"));
+                    _config.Save(_ctx.Storage, "LootRates.json");
                     ActiveConfig = _config;
                 }
                 catch (Exception ex)
@@ -147,18 +151,15 @@ namespace LootRates
 
             try
             {
-                _harmony = new Harmony("timf.plugin.LootRates");
                 if (DropItemsMethod != null)
                 {
-                    _harmony.Patch(
-                        DropItemsMethod,
-                        postfix: new HarmonyMethod(typeof(LootRatesMod), nameof(DropItems_Postfix)));
+                    _patches.PatchPostfix(DropItemsMethod, typeof(LootRatesMod).GetMethod(
+                        nameof(DropItems_Postfix), BindingFlags.NonPublic | BindingFlags.Static));
                 }
                 if (DropMoneyMethod != null)
                 {
-                    _harmony.Patch(
-                        DropMoneyMethod,
-                        postfix: new HarmonyMethod(typeof(LootRatesMod), nameof(DropMoney_Postfix)));
+                    _patches.PatchPostfix(DropMoneyMethod, typeof(LootRatesMod).GetMethod(
+                        nameof(DropMoney_Postfix), BindingFlags.NonPublic | BindingFlags.Static));
                 }
                 _hooksLive = true;
                 ActiveLog?.Info("LootRates Harmony patches installed");
@@ -166,23 +167,20 @@ namespace LootRates
             catch (Exception ex)
             {
                 ActiveLog?.Error("LootRates InstallHooks failed", ex);
-                try { _harmony?.UnpatchAll("timf.plugin.LootRates"); } catch { /* ignore */ }
-                _harmony = null;
+                try { _patches?.UnpatchAll(); } catch { /* ignore */ }
                 _hooksLive = false;
             }
         }
 
         private void UninstallHooks()
         {
-            if (!_hooksLive && _harmony == null)
+            if (!_hooksLive)
                 return;
             try
             {
-                if (_harmony != null)
-                    _harmony.UnpatchAll("timf.plugin.LootRates");
+                _patches?.UnpatchAll();
             }
             catch { /* ignore */ }
-            _harmony = null;
             _hooksLive = false;
         }
 
@@ -205,7 +203,7 @@ namespace LootRates
             try
             {
                 for (var i = 0; i < extra; i++)
-                    DropItemsMethod.Invoke(__instance, new object[] { closestPlayer });
+                    Reflection.Invoke(DropItemsMethod, __instance, new object[] { closestPlayer });
             }
             catch (Exception ex)
             {
@@ -241,9 +239,9 @@ namespace LootRates
             try
             {
                 for (var i = 0; i < whole; i++)
-                    DropMoneyMethod.Invoke(__instance, new object[] { closestPlayer });
+                    Reflection.Invoke(DropMoneyMethod, __instance, new object[] { closestPlayer });
                 if (frac > 0.001f && Main.rand.NextFloat() < frac)
-                    DropMoneyMethod.Invoke(__instance, new object[] { closestPlayer });
+                    Reflection.Invoke(DropMoneyMethod, __instance, new object[] { closestPlayer });
             }
             catch (Exception ex)
             {

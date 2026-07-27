@@ -5,6 +5,7 @@ using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Input;
 using Terraria;
 using TIMF.Abstractions;
+using TIMF.Abstractions.Security;
 
 namespace CreativeMode
 {
@@ -44,7 +45,7 @@ namespace CreativeMode
         public void Load(IModContext context)
         {
             _ctx = context;
-            _db = new ItemDatabase(context.Log);
+            _db = new ItemDatabase(context.Log, context.Services.GetService<ITerrariaReflection>());
 
             _ui = context.Client != null ? context.Client.Ui : null;
             if (_ui == null)

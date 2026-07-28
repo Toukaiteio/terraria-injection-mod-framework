@@ -55,7 +55,8 @@ namespace TIMF.Core.Content
             var itemSlots = TextureAssetSlots.Resolve(_log, "Item");
             var tileSlots = TextureAssetSlots.Resolve(_log, "Tile");
             var wallSlots = TextureAssetSlots.Resolve(_log, "Wall");
-            if (itemSlots == null && tileSlots == null && wallSlots == null)
+            var npcSlots = TextureAssetSlots.Resolve(_log, "Npc");
+            if (itemSlots == null && tileSlots == null && wallSlots == null && npcSlots == null)
             {
                 _done = true;   // no point retrying a missing field every frame
                 return;
@@ -195,8 +196,79 @@ namespace TIMF.Core.Content
                     _log.Error("Content: could not install a wall texture asset for " + def.ContentKey);
             }
 
+            foreach (var kv in _content.NpcsById)
+            {
+                var id = kv.Key; var def = kv.Value; Texture2D texture = null;
+                try
+                {
+                    var dir = resolveModDirectory(def.ModId);
+                    if (!string.IsNullOrEmpty(dir))
+                    {
+                        var path = Path.Combine(dir, def.Texture.Replace('/', Path.DirectorySeparatorChar));
+                        if (!Path.HasExtension(path)) path += ".png";
+                        if (File.Exists(path)) using (var fs = File.OpenRead(path)) texture = Texture2D.FromStream(device, fs);
+                        else _log.Warn("Content: NPC texture not found for " + def.ContentKey + " at " + path);
+                    }
+                }
+                catch (Exception ex) { _log.Error("Content: failed to load NPC texture for " + def.ContentKey, ex); }
+                if (texture == null)
+                {
+                    texture = CreatePlaceholder(device); PlaceholderCount++;
+                    _content.NpcTexturesPlaceholder++;
+                }
+                else
+                {
+                    LoadedCount++;
+                    _content.NpcTexturesLoaded++;
+                }
+                if (npcSlots == null || !npcSlots.Assign(id, texture, def.ContentKey))
+                    _log.Error("Content: could not install an NPC texture asset for " + def.ContentKey);
+            }
+
+            LoadProjectileAndBuffTextures(device, resolveModDirectory);
+
             _log.Info("Content: textures ready (" + LoadedCount + " loaded, "
                       + PlaceholderCount + " placeholder)");
+        }
+
+        private void LoadProjectileAndBuffTextures(GraphicsDevice device, Func<string, string> resolveModDirectory)
+        {
+            var projectileSlots = TextureAssetSlots.Resolve(_log, "Projectile");
+            foreach (var kv in _content.ProjectilesById)
+            {
+                var texture = LoadTexture(device, resolveModDirectory, kv.Value.ModId, kv.Value.Texture,
+                    "projectile", kv.Value.ContentKey);
+                if (texture == null) { texture = CreatePlaceholder(device); PlaceholderCount++; _content.ProjectileTexturesPlaceholder++; }
+                else { LoadedCount++; _content.ProjectileTexturesLoaded++; }
+                if (projectileSlots == null || !projectileSlots.Assign(kv.Key, texture, kv.Value.ContentKey))
+                    _log.Error("Content: could not install projectile texture for " + kv.Value.ContentKey);
+            }
+
+            var buffSlots = TextureAssetSlots.Resolve(_log, "Buff");
+            foreach (var kv in _content.BuffsById)
+            {
+                var texture = LoadTexture(device, resolveModDirectory, kv.Value.ModId, kv.Value.Texture,
+                    "buff", kv.Value.ContentKey);
+                if (texture == null) { texture = CreatePlaceholder(device); PlaceholderCount++; _content.BuffTexturesPlaceholder++; }
+                else { LoadedCount++; _content.BuffTexturesLoaded++; }
+                if (buffSlots == null || !buffSlots.Assign(kv.Key, texture, kv.Value.ContentKey))
+                    _log.Error("Content: could not install buff texture for " + kv.Value.ContentKey);
+            }
+        }
+
+        private Texture2D LoadTexture(GraphicsDevice device, Func<string, string> resolveModDirectory,
+            string modId, string relative, string label, string contentKey)
+        {
+            try
+            {
+                var dir = resolveModDirectory(modId);
+                if (string.IsNullOrEmpty(dir)) return null;
+                var path = Path.Combine(dir, relative.Replace('/', Path.DirectorySeparatorChar));
+                if (!Path.HasExtension(path)) path += ".png";
+                if (!File.Exists(path)) { _log.Warn("Content: " + label + " texture not found for " + contentKey + " at " + path); return null; }
+                using (var fs = File.OpenRead(path)) return Texture2D.FromStream(device, fs);
+            }
+            catch (Exception ex) { _log.Error("Content: failed to load " + label + " texture for " + contentKey, ex); return null; }
         }
 
         /// <summary>Magenta 16x16 so a missing texture is visible rather than invisible.</summary>

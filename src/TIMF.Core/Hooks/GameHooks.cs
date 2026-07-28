@@ -163,9 +163,9 @@ namespace TIMF.Core.Hooks
             _log = log;
             _mods = mods;
             _menuVersion = new MenuVersionOverlay(log);
-            _playerUpdate = new PlayerUpdateHookRegistry(log, mods.IsExecutionAllowed);
-            _mapOverlay = new MapOverlayHookRegistry(log, mods.IsExecutionAllowed);
-            _infoAcc = new InfoAccessoryHookRegistry(log, mods.IsExecutionAllowed);
+            _playerUpdate = new PlayerUpdateHookRegistry(log, mods.IsExecutionAllowed, mods.ReportModFault);
+            _mapOverlay = new MapOverlayHookRegistry(log, mods.IsExecutionAllowed, mods.ReportModFault);
+            _infoAcc = new InfoAccessoryHookRegistry(log, mods.IsExecutionAllowed, mods.ReportModFault);
             _keybinds = new KeybindService(log);
             _contentTextures = new Content.ContentTextureLoader(log, mods.Content);
             _session = new SessionService(log, mods);
@@ -230,16 +230,29 @@ namespace TIMF.Core.Hooks
                 Content.ItemContentPatches.Bind(_mods.Content, _log);
                 Content.TileContentPatches.Bind(_mods.Content, _log);
                 Content.WallContentPatches.Bind(_mods.Content, _log);
+                Content.NpcContentPatches.Bind(_mods.Content, _log);
+                Content.BiomeContentPatches.Bind(_mods.Content, _log);
+                Content.ProjectileContentPatches.Bind(_mods.Content, _log);
+                Content.BuffContentPatches.Bind(_mods.Content, _log);
+                Content.ContentInstanceArrayPatches.Bind(_mods.Content, _log);
                 _harmony.PatchAll(typeof(DrawVersionNumberPatch).Assembly);
                 Content.ItemContentPatches.Install(_harmony, _log);
                 Content.TileContentPatches.Install(_harmony, _log);
                 Content.WallContentPatches.Install(_harmony, _log);
+                Content.NpcContentPatches.Install(_harmony, _log);
+                Content.BiomeContentPatches.Install(_harmony, _log);
+                Content.ProjectileContentPatches.Install(_harmony, _log);
+                Content.BuffContentPatches.Install(_harmony, _log);
+                Content.ContentInstanceArrayPatches.Install(_harmony, _log);
+                Content.NpcQuestSystem.Install(_harmony, _log);
                 Content.ContentBootstrapPatch.Install(_harmony, _mods.Content, _log);
                 SpriteBatchGuardPatch.Install(_harmony, _log);
                 Content.ContentSaveDiagnostics.Install(_harmony, _mods.Content, _log);
                 Content.PlayerContentSidecar.Install(_harmony, _mods.Content, _log);
+                Content.PlayerBuffSidecar.Install(_harmony, _mods.Content, _log);
                 Content.WorldChestSidecar.Install(_harmony, _mods.Content, _log);
                 Content.WorldTileSidecar.Install(_harmony, _mods.Content, _log);
+                Content.WorldNpcSidecar.Install(_harmony, _mods.Content, _log);
                 // Keybind UI patches are registered explicitly (class has no [HarmonyPatch] marker
                 // for PatchAll discovery of nested method attributes in all Harmony versions).
                 KeybindUiPatches.Install(_harmony, _log);
@@ -379,7 +392,7 @@ namespace TIMF.Core.Hooks
                     if (!_mods.IsExecutionAllowed(list[i]))
                         continue;
                     try { list[i].PostDraw(gameTime ?? new GameTime()); }
-                    catch (Exception ex) { _log.Error("PostDraw failed in mod " + list[i].Name, ex); }
+                    catch (Exception ex) { _mods.ReportModFault(list[i], "PostDraw", ex); }
                 }
 
                 // Security prompts are framework-owned and drawn after mod UI. A mod can request

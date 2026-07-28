@@ -30,12 +30,21 @@ namespace TIMF.Core.Content
         public const int DefaultItemIdBase = 10000;
         public const int DefaultTileIdBase = 2000;
         public const int DefaultWallIdBase = 1000;
+        public const int DefaultNpcIdBase = 1000;
+        public const int DefaultProjectileIdBase = 2000;
+        public const int DefaultBuffIdBase = 1000;
 
         private const string BaseKey = "#itemIdBase";
         private const string TileBaseKey = "#tileIdBase";
         private const string TileKeyPrefix = "tile:";
         private const string WallBaseKey = "#wallIdBase";
         private const string WallKeyPrefix = "wall:";
+        private const string NpcBaseKey = "#npcIdBase";
+        private const string NpcKeyPrefix = "npc:";
+        private const string ProjectileBaseKey = "#projectileIdBase";
+        private const string ProjectileKeyPrefix = "projectile:";
+        private const string BuffBaseKey = "#buffIdBase";
+        private const string BuffKeyPrefix = "buff:";
 
         private readonly ILogger _log;
         private readonly string _path;
@@ -45,6 +54,12 @@ namespace TIMF.Core.Content
             new Dictionary<string, int>(StringComparer.Ordinal);
         private readonly Dictionary<string, int> _wallIds =
             new Dictionary<string, int>(StringComparer.Ordinal);
+        private readonly Dictionary<string, int> _npcIds =
+            new Dictionary<string, int>(StringComparer.Ordinal);
+        private readonly Dictionary<string, int> _projectileIds =
+            new Dictionary<string, int>(StringComparer.Ordinal);
+        private readonly Dictionary<string, int> _buffIds =
+            new Dictionary<string, int>(StringComparer.Ordinal);
 
         private int _itemIdBase = DefaultItemIdBase;
         private int _nextItemId = DefaultItemIdBase;
@@ -52,6 +67,12 @@ namespace TIMF.Core.Content
         private int _nextTileId = DefaultTileIdBase;
         private int _wallIdBase = DefaultWallIdBase;
         private int _nextWallId = DefaultWallIdBase;
+        private int _npcIdBase = DefaultNpcIdBase;
+        private int _nextNpcId = DefaultNpcIdBase;
+        private int _projectileIdBase = DefaultProjectileIdBase;
+        private int _nextProjectileId = DefaultProjectileIdBase;
+        private int _buffIdBase = DefaultBuffIdBase;
+        private int _nextBuffId = DefaultBuffIdBase;
         private bool _dirty;
 
         public ContentIdStore(
@@ -59,7 +80,10 @@ namespace TIMF.Core.Content
             string configDir,
             int vanillaItemCount,
             int vanillaTileCount,
-            int vanillaWallCount)
+            int vanillaWallCount,
+            int vanillaNpcCount = 0,
+            int vanillaProjectileCount = 0,
+            int vanillaBuffCount = 0)
         {
             _log = log;
             _path = Path.Combine(configDir ?? "", "content-ids.json");
@@ -114,6 +138,33 @@ namespace TIMF.Core.Content
             _nextWallId = _wallIdBase;
             foreach (var id in _wallIds.Values)
                 if (id >= _nextWallId) _nextWallId = id + 1;
+
+            if (vanillaNpcCount > _npcIdBase)
+            {
+                _log.Error("Vanilla NPC count has grown past the TIMF NPC id base; NPC ids are being reassigned.");
+                _npcIds.Clear();
+                _npcIdBase = vanillaNpcCount + 250;
+                _dirty = true;
+            }
+            _nextNpcId = _npcIdBase;
+            foreach (var id in _npcIds.Values)
+                if (id >= _nextNpcId) _nextNpcId = id + 1;
+
+            if (vanillaProjectileCount > _projectileIdBase)
+            {
+                _log.Error("Vanilla projectile count has grown past the TIMF projectile id base; projectile ids are being reassigned.");
+                _projectileIds.Clear(); _projectileIdBase = vanillaProjectileCount + 500; _dirty = true;
+            }
+            _nextProjectileId = _projectileIdBase;
+            foreach (var id in _projectileIds.Values) if (id >= _nextProjectileId) _nextProjectileId = id + 1;
+
+            if (vanillaBuffCount > _buffIdBase)
+            {
+                _log.Error("Vanilla buff count has grown past the TIMF buff id base; buff ids are being reassigned.");
+                _buffIds.Clear(); _buffIdBase = vanillaBuffCount + 250; _dirty = true;
+            }
+            _nextBuffId = _buffIdBase;
+            foreach (var id in _buffIds.Values) if (id >= _nextBuffId) _nextBuffId = id + 1;
         }
 
         public int ItemIdBase => _itemIdBase;
@@ -127,10 +178,19 @@ namespace TIMF.Core.Content
         public int NextTileId => _nextTileId;
         public int WallIdBase => _wallIdBase;
         public int NextWallId => _nextWallId;
+        public int NpcIdBase => _npcIdBase;
+        public int NextNpcId => _nextNpcId;
+        public int ProjectileIdBase => _projectileIdBase;
+        public int NextProjectileId => _nextProjectileId;
+        public int BuffIdBase => _buffIdBase;
+        public int NextBuffId => _nextBuffId;
 
         public IReadOnlyDictionary<string, int> ItemIds => _itemIds;
         public IReadOnlyDictionary<string, int> TileIds => _tileIds;
         public IReadOnlyDictionary<string, int> WallIds => _wallIds;
+        public IReadOnlyDictionary<string, int> NpcIds => _npcIds;
+        public IReadOnlyDictionary<string, int> ProjectileIds => _projectileIds;
+        public IReadOnlyDictionary<string, int> BuffIds => _buffIds;
 
         /// <summary>
         /// Stable id for a content key, allocating one on first sight. Keys are case-sensitive
@@ -197,6 +257,39 @@ namespace TIMF.Core.Content
             return id;
         }
 
+        public int GetOrAllocateNpcId(string contentKey)
+        {
+            if (string.IsNullOrWhiteSpace(contentKey))
+                throw new ArgumentException("contentKey is required", nameof(contentKey));
+            int existing;
+            if (_npcIds.TryGetValue(contentKey, out existing)) return existing;
+            if (_nextNpcId > short.MaxValue - 1)
+                throw new InvalidOperationException("Out of modded NPC ids");
+            var id = _nextNpcId++;
+            _npcIds[contentKey] = id;
+            _dirty = true;
+            _log.Info("Allocated NPC id " + id + " -> " + contentKey);
+            return id;
+        }
+
+        public int GetOrAllocateProjectileId(string contentKey)
+        {
+            if (string.IsNullOrWhiteSpace(contentKey)) throw new ArgumentException("contentKey is required", nameof(contentKey));
+            int existing; if (_projectileIds.TryGetValue(contentKey, out existing)) return existing;
+            if (_nextProjectileId > short.MaxValue - 1) throw new InvalidOperationException("Out of modded projectile ids");
+            var id = _nextProjectileId++; _projectileIds[contentKey] = id; _dirty = true;
+            _log.Info("Allocated projectile id " + id + " -> " + contentKey); return id;
+        }
+
+        public int GetOrAllocateBuffId(string contentKey)
+        {
+            if (string.IsNullOrWhiteSpace(contentKey)) throw new ArgumentException("contentKey is required", nameof(contentKey));
+            int existing; if (_buffIds.TryGetValue(contentKey, out existing)) return existing;
+            if (_nextBuffId > ushort.MaxValue - 1) throw new InvalidOperationException("Out of network-safe modded buff ids");
+            var id = _nextBuffId++; _buffIds[contentKey] = id; _dirty = true;
+            _log.Info("Allocated buff id " + id + " -> " + contentKey); return id;
+        }
+
         /// <summary>Content key holding an id, or null when the id was never handed out.</summary>
         public string KeyForItemId(int id)
         {
@@ -254,6 +347,18 @@ namespace TIMF.Core.Content
                             _wallIdBase = value;
                         else if (key.StartsWith(WallKeyPrefix, StringComparison.Ordinal))
                             _wallIds[key.Substring(WallKeyPrefix.Length)] = value;
+                        else if (string.Equals(key, NpcBaseKey, StringComparison.Ordinal))
+                            _npcIdBase = value;
+                        else if (key.StartsWith(NpcKeyPrefix, StringComparison.Ordinal))
+                            _npcIds[key.Substring(NpcKeyPrefix.Length)] = value;
+                        else if (string.Equals(key, ProjectileBaseKey, StringComparison.Ordinal))
+                            _projectileIdBase = value;
+                        else if (key.StartsWith(ProjectileKeyPrefix, StringComparison.Ordinal))
+                            _projectileIds[key.Substring(ProjectileKeyPrefix.Length)] = value;
+                        else if (string.Equals(key, BuffBaseKey, StringComparison.Ordinal))
+                            _buffIdBase = value;
+                        else if (key.StartsWith(BuffKeyPrefix, StringComparison.Ordinal))
+                            _buffIds[key.Substring(BuffKeyPrefix.Length)] = value;
                         else if (!string.IsNullOrWhiteSpace(key))
                             _itemIds[key] = value;
                     }
@@ -264,6 +369,9 @@ namespace TIMF.Core.Content
                 _log.Info("Content id map loaded (" + _itemIds.Count + " item id(s), base " + _itemIdBase
                           + "; " + _tileIds.Count + " tile id(s), base " + _tileIdBase
                           + "; " + _wallIds.Count + " wall id(s), base " + _wallIdBase
+                          + "; " + _npcIds.Count + " NPC id(s), base " + _npcIdBase
+                          + "; " + _projectileIds.Count + " projectile id(s), base " + _projectileIdBase
+                          + "; " + _buffIds.Count + " buff id(s), base " + _buffIdBase
                           + ") from " + _path);
             }
             catch (Exception ex)
@@ -290,6 +398,13 @@ namespace TIMF.Core.Content
                 sb.AppendLine(",");
                 sb.Append("  \"").Append(WallBaseKey).Append("\": ").Append(_wallIdBase);
 
+                sb.AppendLine(",");
+                sb.Append("  \"").Append(NpcBaseKey).Append("\": ").Append(_npcIdBase);
+                sb.AppendLine(",");
+                sb.Append("  \"").Append(ProjectileBaseKey).Append("\": ").Append(_projectileIdBase);
+                sb.AppendLine(",");
+                sb.Append("  \"").Append(BuffBaseKey).Append("\": ").Append(_buffIdBase);
+
                 foreach (var kv in _itemIds)
                 {
                     sb.AppendLine(",");
@@ -309,15 +424,36 @@ namespace TIMF.Core.Content
                     sb.Append("  \"").Append(Escape(WallKeyPrefix + kv.Key)).Append("\": ").Append(kv.Value);
                 }
 
+                foreach (var kv in _npcIds)
+                {
+                    sb.AppendLine(",");
+                    sb.Append("  \"").Append(Escape(NpcKeyPrefix + kv.Key)).Append("\": ").Append(kv.Value);
+                }
+
+                foreach (var kv in _projectileIds)
+                {
+                    sb.AppendLine(",");
+                    sb.Append("  \"").Append(Escape(ProjectileKeyPrefix + kv.Key)).Append("\": ").Append(kv.Value);
+                }
+
+                foreach (var kv in _buffIds)
+                {
+                    sb.AppendLine(",");
+                    sb.Append("  \"").Append(Escape(BuffKeyPrefix + kv.Key)).Append("\": ").Append(kv.Value);
+                }
+
                 sb.AppendLine();
                 sb.AppendLine("}");
 
                 // Write via a temp file so a crash mid-write cannot leave a truncated map.
                 var tmp = _path + ".tmp";
-                File.WriteAllText(tmp, sb.ToString(), Encoding.UTF8);
-                if (File.Exists(_path))
-                    File.Delete(_path);
-                File.Move(tmp, _path);
+                using (var stream = new FileStream(tmp, FileMode.Create, FileAccess.Write, FileShare.None))
+                using (var writer = new StreamWriter(stream, new UTF8Encoding(false)))
+                {
+                    writer.Write(sb.ToString()); writer.Flush(); stream.Flush(true);
+                }
+                if (File.Exists(_path)) File.Replace(tmp, _path, _path + ".bak", true);
+                else File.Move(tmp, _path);
             }
             catch (Exception ex)
             {

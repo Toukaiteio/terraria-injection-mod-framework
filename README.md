@@ -40,6 +40,25 @@
 
 游戏内按 **F9** 打开 Mod Settings 中心。日志在 `dist\logs\`。
 
+### 独立开发模组（Mod SDK + `dotnet new` 模板）
+
+除了在仓库内 `mods\` 下开发，也可以**完全脱离本仓库**、用发布包内的 **Mod SDK** 开发单个模组。`build.ps1`
+会把可分发的 SDK 组装到 `dist\ModSDK\`（含引用程序集、共享构建 props 与 `dotnet new` 模板）：
+
+```powershell
+setx TIMF_SDK      "<解压后的 ModSDK 路径>"    # 一次性，重开终端生效
+setx TIMF_TERRARIA "<你自备的 Terraria.exe>"   # 合法游戏副本，绝不随 SDK 分发
+
+dotnet new install <ModSDK>\templates\timf-mod
+dotnet new timf-mod -n MyMod --display "My Mod"
+cd MyMod
+dotnet build -c Release        # 产出可直接投放的 dist\MyMod\（dll + 本地化 + 默认配置）
+```
+
+生成的骨架是一个含配置与本地化的 `IClientMod`。`net48` / `x86`、框架与 Terraria/XNA 引用、构建后自动
+打包都由 SDK 的 `TIMF.Mod.props` 统一提供，模组的 `.csproj` 只需一行 `Import`。编译产物会经加载前安全
+审计；把 `dist\MyMod\` 整个目录拷进 TIMF home 的 `Mods\` 即可安装。
+
 ---
 
 ## 架构
@@ -112,10 +131,11 @@ public sealed class LootRatesMod : IAuthorityMod, IModSettings, IAuthorityLifecy
 单次、当前 TIMF 进程、精确持久授权和撤销。当前模组 DLL 仍与游戏运行在同一完全信任进程中，框架无法
 可靠拦截绕过代理的 `System.IO`、`Process` 或原生调用；设置中心会持续展示这一隔离边界警告。
 
-作为加载前纵深防御，Core 会扫描模组主 DLL 与私有依赖的 IL/元数据；直接文件、进程、网络、P/Invoke、
-动态调用、原生依赖和直接 Harmony 等痕迹会在任何模组构造函数执行前被拒载，并显示在安全中心。普通配置
-改走每模组隔离的 `context.Storage`，Terraria 私有方法与 patch 分别走受限反射/patch 代理。静态审计能
-阻断常见绕过，但仍不等价于进程级沙箱。
+作为加载前纵深防御，Core 会在**不加载程序集**的前提下扫描模组主 DLL 与私有依赖的 IL/元数据；直接文件、
+进程、网络、P/Invoke、动态调用、原生依赖和直接 Harmony 等痕迹会在任何模组构造函数执行前被拒载，并显示
+在安全中心。运行期反复抛异常的模组会被看门狗自动禁用（保持驻留但不再派发钩子）。普通配置改走每模组隔离
+的 `context.Storage`，Terraria 私有方法与 patch 分别走受限反射/patch 代理。静态审计能阻断常见绕过，但
+仍不等价于进程级沙箱。
 
 跨模组服务也采用身份绑定发布：普通模组只能通过 `context.ServicePublisher` 发布自己程序集声明的接口，
 不能覆盖既有框架/安全/UI 服务；直接调用原始服务注册入口会被预加载审计拒绝。
@@ -133,7 +153,7 @@ public sealed class LootRatesMod : IAuthorityMod, IModSettings, IAuthorityLifecy
 | I-Have-My-Phone-Anyway | `Client` | 信息饰品示例（`IInfoAccessoryHook`） |
 | CreativeMode | `Client` | 物品生成 |
 | ModSettingsHub | `Client` | F9 统一设置中心 |
-| ContentTestKit | `Client` | 自定义物品、图格、墙、家具、容器和安全授权测试 |
+| ContentTestKit | `Required` | 自定义物品、图格、墙、家具、容器、草/群系、射弹、Buff/Debuff、宠物物品、NPC 商店/任务和安全授权测试 |
 | **LootRates** | `Authority` / `Vanilla` | 主机掉落与金币倍率，**原版客户端可进房** |
 | **WeatherControl** | `Authority` / `Vanilla` | 天气控制与锁定，走 `IWeatherService` |
 
@@ -141,4 +161,6 @@ public sealed class LootRatesMod : IAuthorityMod, IModSettings, IAuthorityLifecy
 
 ## 许可与声明
 
-仅供学习与私用。请遵守游戏 ToS 与当地法律；公开分发注入工具有风险。
+- 仅用于**学习研究**与**单机 / 自建私服**的个人使用，请勿用于破坏多人游戏公平或绕过反作弊。
+- 需自备合法的 Terraria 客户端；本仓库**不包含也不分发**任何游戏二进制（`Terraria.exe` 已 gitignore）。
+- 使用注入技术修改商业游戏须自行遵守游戏 ToS 与当地法律，风险自负。

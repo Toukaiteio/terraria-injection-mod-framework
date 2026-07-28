@@ -32,5 +32,8 @@
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Lib.Harmony" Version="2.3.3" />
+    <!-- Load-free IL verification of untrusted mod assemblies (reads metadata as data;
+         never loads mod code into the process). Core-only; not exposed to mods. -->
+    <PackageReference Include="Mono.Cecil" Version="0.11.5" />
   </ItemGroup>
 </Project>

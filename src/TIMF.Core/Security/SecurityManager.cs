@@ -37,6 +37,7 @@ namespace TIMF.Core.Security
             new Dictionary<string, Record>(StringComparer.OrdinalIgnoreCase);
         private readonly List<Grant> _grants = new List<Grant>();
         private readonly List<AssemblySafetyFinding> _blockedLoads = new List<AssemblySafetyFinding>();
+        private readonly List<string> _runtimeDisabled = new List<string>();
         private bool _show;
         private string _selectedGrantKey;
 
@@ -63,8 +64,9 @@ namespace TIMF.Core.Security
         }
 
         public string BoundaryWarning =>
-            "TIMF can enforce only operations performed through its security proxy. " +
-            "Loaded .NET mod DLLs are trusted code; direct System.IO, Process or native calls cannot currently be sandboxed.";
+            "TIMF verifies every mod assembly's IL before it is loaded and rejects any that use file, " +
+            "process, network, native, dynamic-code or reflection-escape APIs. Once loaded, a mod is " +
+            "in-process trusted code, so only operations routed through this security proxy stay enforceable.";
 
         public void Show() { _show = true; }
 
@@ -74,6 +76,21 @@ namespace TIMF.Core.Security
             lock (_sync)
             {
                 _blockedLoads.AddRange(findings);
+                _show = true;
+            }
+        }
+
+        /// <summary>
+        /// Surface a mod the stability watchdog disabled at runtime. Recorded for the Security Center
+        /// so a silently-inert mod is explained to the user rather than just vanishing.
+        /// </summary>
+        internal void RecordRuntimeDisabled(string modId, string reason)
+        {
+            lock (_sync)
+            {
+                var entry = (modId ?? "?") + " \u2014 " + (reason ?? "");
+                if (!_runtimeDisabled.Contains(entry))
+                    _runtimeDisabled.Add(entry);
                 _show = true;
             }
         }
@@ -295,11 +312,11 @@ namespace TIMF.Core.Security
             if (ui.Begin(Zh() ? "TIMF 安全中心" : "TIMF Security Center", ref open))
             {
                 ui.TextColored(Zh()
-                    ? "警告：模组 DLL 是同进程受信任代码；TIMF 只能约束经安全代理执行的操作。"
+                    ? "TIMF \u5728\u52a0\u8f7d\u524d\u9759\u6001\u6821\u9a8c\u6bcf\u4e2a\u6a21\u7ec4\u7684 IL\uff1a\u4f7f\u7528\u6587\u4ef6/\u8fdb\u7a0b/\u7f51\u7edc/\u539f\u751f/\u52a8\u6001\u4ee3\u7801/\u53cd\u5c04\u9003\u9038\u63a5\u53e3\u7684\u7a0b\u5e8f\u96c6\u4f1a\u88ab\u62d2\u7edd\u52a0\u8f7d\u3002"
                     : BoundaryWarning, new Microsoft.Xna.Framework.Color(255, 175, 90));
                 ui.TextColored(Zh()
-                    ? "未经授权的直接 System.IO / Process / 原生调用目前无法由框架拦截。"
-                    : "Direct System.IO / Process / native calls remain outside the current isolation boundary.",
+                    ? "\u52a0\u8f7d\u540e\u6a21\u7ec4\u5373\u4e3a\u540c\u8fdb\u7a0b\u53d7\u4fe1\u4efb\u4ee3\u7801\uff0c\u4ec5\u7ecf\u5b89\u5168\u4ee3\u7406\u6267\u884c\u7684\u64cd\u4f5c\u4ecd\u53ef\u7531\u6846\u67b6\u5f3a\u5236\u7ea6\u675f\u3002"
+                    : "Once loaded, a mod is in-process trusted code; only operations via this proxy remain enforceable.",
                     new Microsoft.Xna.Framework.Color(255, 145, 100));
                 ui.Separator();
 
@@ -328,6 +345,18 @@ namespace TIMF.Core.Security
                         DrawFullText(ui, "", finding.ToString());
                     if (blocked.Count > 20)
                         ui.Text((Zh() ? "其余结果请查看日志：" : "More findings are available in the log: ") + (blocked.Count - 20));
+                }
+
+                List<string> disabled;
+                lock (_sync) disabled = _runtimeDisabled.ToList();
+                if (disabled.Count > 0)
+                {
+                    ui.Spacing(8f);
+                    ui.Separator();
+                    ui.TextColored(Zh() ? "因反复异常被自动禁用的模组（本会话）" : "Mods auto-disabled this session for repeated faults",
+                        new Microsoft.Xna.Framework.Color(255, 160, 90));
+                    foreach (var entry in disabled.Take(20))
+                        DrawFullText(ui, "", entry);
                 }
             }
             ui.End();

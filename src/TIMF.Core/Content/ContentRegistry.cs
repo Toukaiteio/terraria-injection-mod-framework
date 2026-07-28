@@ -15,19 +15,31 @@ namespace TIMF.Core.Content
         private readonly List<TimfItem> _itemSink;
         private readonly List<TimfTile> _tileSink;
         private readonly List<TimfWall> _wallSink;
+        private readonly List<TimfNpc> _npcSink;
+        private readonly List<TimfBiome> _biomeSink;
+        private readonly List<TimfProjectile> _projectileSink;
+        private readonly List<TimfBuff> _buffSink;
 
         public ContentRegistry(
             ILogger log,
             string modId,
             List<TimfItem> itemSink,
             List<TimfTile> tileSink,
-            List<TimfWall> wallSink)
+            List<TimfWall> wallSink,
+            List<TimfNpc> npcSink,
+            List<TimfBiome> biomeSink,
+            List<TimfProjectile> projectileSink,
+            List<TimfBuff> buffSink)
         {
             _log = log;
             ModId = modId;
             _itemSink = itemSink;
             _tileSink = tileSink;
             _wallSink = wallSink;
+            _npcSink = npcSink;
+            _biomeSink = biomeSink;
+            _projectileSink = projectileSink;
+            _buffSink = buffSink;
         }
 
         public string ModId { get; }
@@ -83,6 +95,55 @@ namespace TIMF.Core.Content
                 throw new InvalidOperationException(wall.GetType().FullName + ".InternalName is empty");
             _wallSink.Add(wall);
             _log.Debug("Content: registered wall definition " + wall.ContentKey);
+        }
+
+        public void AddNpc<TNpc>() where TNpc : TimfNpc, new() { AddNpc(new TNpc()); }
+
+        public void AddNpc(TimfNpc npc)
+        {
+            if (npc == null) throw new ArgumentNullException(nameof(npc));
+            npc.ModId = ModId;
+            if (string.IsNullOrWhiteSpace(npc.InternalName))
+                throw new InvalidOperationException(npc.GetType().FullName + ".InternalName is empty");
+            _npcSink.Add(npc);
+            _log.Debug("Content: registered NPC definition " + npc.ContentKey);
+        }
+
+        public void AddBiome<TBiome>() where TBiome : TimfBiome, new() { AddBiome(new TBiome()); }
+
+        public void AddBiome(TimfBiome biome)
+        {
+            if (biome == null) throw new ArgumentNullException(nameof(biome));
+            biome.ModId = ModId;
+            if (string.IsNullOrWhiteSpace(biome.InternalName))
+                throw new InvalidOperationException(biome.GetType().FullName + ".InternalName is empty");
+            _biomeSink.Add(biome);
+            _log.Debug("Content: registered biome definition " + biome.ContentKey);
+        }
+
+        public void AddProjectile<TProjectile>() where TProjectile : TimfProjectile, new()
+        { AddProjectile(new TProjectile()); }
+
+        public void AddProjectile(TimfProjectile projectile)
+        {
+            if (projectile == null) throw new ArgumentNullException(nameof(projectile));
+            projectile.ModId = ModId;
+            if (string.IsNullOrWhiteSpace(projectile.InternalName))
+                throw new InvalidOperationException(projectile.GetType().FullName + ".InternalName is empty");
+            _projectileSink.Add(projectile);
+            _log.Debug("Content: registered projectile definition " + projectile.ContentKey);
+        }
+
+        public void AddBuff<TBuff>() where TBuff : TimfBuff, new() { AddBuff(new TBuff()); }
+
+        public void AddBuff(TimfBuff buff)
+        {
+            if (buff == null) throw new ArgumentNullException(nameof(buff));
+            buff.ModId = ModId;
+            if (string.IsNullOrWhiteSpace(buff.InternalName))
+                throw new InvalidOperationException(buff.GetType().FullName + ".InternalName is empty");
+            _buffSink.Add(buff);
+            _log.Debug("Content: registered buff definition " + buff.ContentKey);
         }
     }
 }

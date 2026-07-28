@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    A TIMF Terraria mod. All shared build logic — framework references, Terraria/XNA resolution,
+    net48/x86 settings and the auto-packaging step — lives in the SDK's TIMF.Mod.props, so this
+    project file stays tiny.
+
+    Point the build at the SDK once, either way:
+      - set the TIMF_SDK environment variable to the unzipped "TIMF Mod SDK" folder, or
+      - pass  -p:TimfSdkDir=C:\path\to\ModSDK  on the command line.
+    You also need a Terraria.exe compile reference (TIMF_TERRARIA env var, or a Steam install).
+  -->
+  <PropertyGroup>
+    <TargetFramework Condition="'$(TargetFramework)' == ''">net48</TargetFramework>
+    <TimfSdkDir Condition="'$(TimfSdkDir)' == '' and '$(TIMF_SDK)' != ''">$(TIMF_SDK)</TimfSdkDir>
+  </PropertyGroup>
+
+  <Import Project="$(TimfSdkDir)\TIMF.Mod.props" Condition="Exists('$(TimfSdkDir)\TIMF.Mod.props')" />
+
+  <Target Name="_TimfSdkMissing" BeforeTargets="BeforeBuild"
+          Condition="!Exists('$(TimfSdkDir)\TIMF.Mod.props')">
+    <Error Text="TIMF Mod SDK not found. Set the TIMF_SDK environment variable to the unzipped TIMF Mod SDK folder (the one containing TIMF.Mod.props), or pass -p:TimfSdkDir=&lt;path&gt;. Looked in: '$(TimfSdkDir)'." />
+  </Target>
+</Project>

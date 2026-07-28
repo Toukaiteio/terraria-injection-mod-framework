@@ -11,6 +11,27 @@
 
 ## 1. 建工程
 
+两种方式，任选其一。
+
+### 方式 A：Mod SDK 模板（独立开发，推荐）
+
+用发布包内的 **Mod SDK**（`build.ps1` 产出的 `dist\ModSDK\`）一条命令生成骨架，`net48`/`x86`、框架与
+Terraria/XNA 引用、构建后自动打包都由 `TIMF.Mod.props` 托底，无需手写引用：
+
+```powershell
+setx TIMF_SDK      "<ModSDK 路径>"           # 一次性，重开终端生效
+setx TIMF_TERRARIA "<你自备的 Terraria.exe>"  # 一次性，合法游戏副本
+
+dotnet new install <ModSDK>\templates\timf-mod
+dotnet new timf-mod -n MyMod --display "My Mod"
+cd MyMod
+dotnet build -c Release          # 产出可直接投放的 dist\MyMod\
+```
+
+生成的 `MyMod` 已含配置、本地化与一个 `IClientMod` 骨架，可直接跳到 [第 4 步](#4-拿服务) 改逻辑。
+
+### 方式 B：仓库内 `mods\`（跟随本仓库一起构建）
+
 在 `mods\<Id>\` 下建一个类库：
 
 - 目标框架 **`net48`**，平台 **`x86`**（游戏是 32 位进程）
@@ -207,3 +228,9 @@ public void Load(IModContext context)
 - [ ] 敏感文件/进程操作是否只走 `context.Security`，并提供了具体、用户可读的用途说明
 - [ ] 是否没有直接调用 `File` / `Directory` / `Process` / PInvoke / Harmony / `MethodInfo.Invoke`
 - [ ] 确实需要 `Net = Required` 吗（它会踢掉原版玩家）
+- [ ] 内容 `InternalName` 是否已经视为永久存档身份，而不是随显示名一起改动
+- [ ] 自定义 NPC 奖励、商店和世界状态是否只由主机/服务端决定
+- [ ] 是否没有自行保存运行时 Item/Tile/Wall/NPC/Projectile/Buff 数值 ID，而是使用内容键或框架旁挂
+- [ ] 自定义 Buff 是否通过 `TimfBuff` 注册，且需要跨存档时保持 `Save=true`
+- [ ] 射弹或任务状态是否只在权威端创建/发放，没有由多人客户端自行决定奖励
+- [ ] 是否避免了当前尚未开放的世界生成、NPC 自定义状态机、刷怪池和群系音乐/背景改写

@@ -17,5 +17,18 @@ namespace UnsafeModFixture
         public static void ReplaceFrameworkService(IServiceRegistry services, ILogger logger) =>
             services.Register<ILogger>(logger);
         public static uint Native() => GetCurrentProcessId();
+
+        // Forbidden call hidden inside a lambda closure (a compiler-generated nested type). Proves
+        // the verifier descends into nested/closure types, not just top-level ones.
+        public static string ReadViaLambda(string path)
+        {
+            System.Func<string> read = () => File.ReadAllText(path);
+            return read();
+        }
+
+        // Constructs an object without running its constructor, bypassing the API audit. Caught by
+        // the FormatterServices.GetUninitializedObject rule.
+        public static object Uninitialized() =>
+            System.Runtime.Serialization.FormatterServices.GetUninitializedObject(typeof(UnsafeCalls));
     }
 }

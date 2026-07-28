@@ -17,7 +17,7 @@ namespace TIMF.Core.Content
     /// </summary>
     internal static class WorldTileSidecar
     {
-        private const int FormatVersion = 3;
+        private const int FormatVersion = 4;
         private const string Magic = "TIMF-TILES";
 
         private static ContentManager _content;
@@ -29,6 +29,47 @@ namespace TIMF.Core.Content
         private static int _restoreDelayFrames = -1;
         private static readonly Dictionary<long, TileRecord> Unresolved =
             new Dictionary<long, TileRecord>();
+        private static readonly Dictionary<long, GrassOrigin> GrassOrigins =
+            new Dictionary<long, GrassOrigin>();
+
+        internal static void RecordGrassOrigin(int x, int y, int substrateType)
+        {
+            if (!InWorld(x, y) || substrateType < 0 || substrateType > ushort.MaxValue)
+                return;
+            var definition = _content?.GetTile(substrateType);
+            GrassOrigins[PositionKey(x, y)] = new GrassOrigin
+            {
+                VanillaType = definition == null ? substrateType : -1,
+                ContentKey = definition?.ContentKey,
+            };
+        }
+
+        internal static int TakeGrassOrigin(int x, int y, TIMF.Content.TimfGrassTile grass)
+        {
+            var key = PositionKey(x, y);
+            GrassOrigin origin;
+            GrassOrigins.TryGetValue(key, out origin);
+            GrassOrigins.Remove(key);
+
+            var type = -1;
+            if (origin != null)
+            {
+                if (!string.IsNullOrEmpty(origin.ContentKey))
+                {
+                    var resolved = _content?.TileType(origin.ContentKey) ?? 0;
+                    if (resolved > 0)
+                        type = resolved;
+                }
+                else
+                {
+                    type = origin.VanillaType;
+                }
+            }
+            if (type < 0)
+                type = grass?.DefaultSubstrateTileType ?? -1;
+            return type >= 0 && type <= ushort.MaxValue && grass != null && grass.CanGrowOn(type)
+                ? type : -1;
+        }
 
         internal static void Install(Harmony harmony, ContentManager content, ILogger log)
         {
@@ -106,8 +147,11 @@ namespace TIMF.Core.Content
                         if (tileDefinition != null) tileLayers++;
                         if (wallDefinition != null) wallLayers++;
 
+                        GrassOrigin grassOrigin;
+                        GrassOrigins.TryGetValue(PositionKey(x, y), out grassOrigin);
                         var record = TileRecord.FromTile(x, y,
-                            tileDefinition?.ContentKey, wallDefinition?.ContentKey, tile);
+                            tileDefinition?.ContentKey, wallDefinition?.ContentKey, tile,
+                            tileDefinition is TIMF.Content.TimfGrassTile ? grassOrigin : null);
                         records[PositionKey(x, y)] = record;
                         stash.Add(new RemovedTile(x, y, tile));
 
@@ -251,6 +295,7 @@ namespace TIMF.Core.Content
         private static void AfterLoad()
         {
             Unresolved.Clear();
+            GrassOrigins.Clear();
             _pendingLoad = null;
             if (_content == null || !_content.IsActivated)
                 return;
@@ -326,6 +371,16 @@ namespace TIMF.Core.Content
                         applied.frameY = 0;
                     }
                     Main.tile[record.X, record.Y] = applied;
+                    if (tileDefinition is TIMF.Content.TimfGrassTile
+                        && (record.GrassSubstrateVanillaType >= 0
+                            || !string.IsNullOrEmpty(record.GrassSubstrateContentKey)))
+                    {
+                        GrassOrigins[PositionKey(record.X, record.Y)] = new GrassOrigin
+                        {
+                            VanillaType = record.GrassSubstrateVanillaType,
+                            ContentKey = record.GrassSubstrateContentKey,
+                        };
+                    }
                     restored++;
                     if (type > 0) restoredTiles++;
                     if (wall > 0) restoredWalls++;
@@ -432,6 +487,12 @@ namespace TIMF.Core.Content
             public Tile Tile { get; }
         }
 
+        private sealed class GrassOrigin
+        {
+            public int VanillaType = -1;
+            public string ContentKey;
+        }
+
         private sealed class TileRecord
         {
             public int X;
@@ -456,9 +517,11 @@ namespace TIMF.Core.Content
             public bool FullbrightBlock;
             public bool InvisibleWall;
             public bool FullbrightWall;
+            public int GrassSubstrateVanillaType = -1;
+            public string GrassSubstrateContentKey;
 
             public static TileRecord FromTile(
-                int x, int y, string tileKey, string wallKey, Tile tile)
+                int x, int y, string tileKey, string wallKey, Tile tile, GrassOrigin grassOrigin)
             {
                 return new TileRecord
                 {
@@ -484,6 +547,8 @@ namespace TIMF.Core.Content
                     FullbrightBlock = tile.fullbrightBlock(),
                     InvisibleWall = tile.invisibleWall(),
                     FullbrightWall = tile.fullbrightWall(),
+                    GrassSubstrateVanillaType = grassOrigin?.VanillaType ?? -1,
+                    GrassSubstrateContentKey = grassOrigin?.ContentKey,
                 };
             }
 
@@ -532,6 +597,8 @@ namespace TIMF.Core.Content
                 writer.Write(FullbrightBlock);
                 writer.Write(InvisibleWall);
                 writer.Write(FullbrightWall);
+                writer.Write(GrassSubstrateVanillaType);
+                writer.Write(GrassSubstrateContentKey ?? "");
             }
 
             public static TileRecord Read(BinaryReader reader, int version)
@@ -558,6 +625,11 @@ namespace TIMF.Core.Content
                     record.FullbrightBlock = reader.ReadBoolean();
                     record.InvisibleWall = reader.ReadBoolean();
                     record.FullbrightWall = reader.ReadBoolean();
+                    if (version >= 4)
+                    {
+                        record.GrassSubstrateVanillaType = reader.ReadInt32();
+                        record.GrassSubstrateContentKey = reader.ReadString();
+                    }
                 }
                 else
                 {

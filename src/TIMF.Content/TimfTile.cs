@@ -49,10 +49,41 @@ namespace TIMF.Content
         public virtual int PlacementTemplateTile => -1;
 
         /// <summary>
+        /// Preserve frameX/frameY as definition-owned state for simple one-cell tiles. Terraria's
+        /// vanilla framing body is still skipped so it cannot reinterpret a custom id.
+        /// </summary>
+        public virtual bool PreserveFrameData => false;
+
+        /// <summary>
         /// Add light emitted by this tile. Components normally range from 0 to 1. The framework
         /// combines them with ambient/vanilla light using the brightest component.
         /// </summary>
         public virtual void ModifyLight(int i, int j, ref float red, ref float green, ref float blue) { }
+
+        /// <summary>Called when a player right-clicks this tile. Return true when handled.</summary>
+        public virtual bool RightClick(int i, int j, Terraria.Player player) => false;
+
+        /// <summary>Called by the framework when this coordinate is reached by a wire pulse.</summary>
+        public virtual void HitWire(int i, int j) { }
+
+        /// <summary>Called only for coordinates selected by Terraria's own world-update sampler.</summary>
+        public virtual void RandomUpdate(int i, int j) { }
+
+        /// <summary>Called for nearby custom tiles during the local player's interaction scan.</summary>
+        public virtual void NearbyEffects(int i, int j, Terraria.Player player, bool closer) { }
+
+        /// <summary>Allows crystals, swords and other special decorations to control destruction.</summary>
+        public virtual bool CanKillTile(int i, int j, Terraria.Player player) => true;
+
+        /// <summary>
+        /// When true, one valid pickaxe strike destroys this tile without accumulating normal
+        /// block damage. Intended for loose rocks, plants, crystals, pots and similar fragile
+        /// decorations. Drop behaviour remains controlled independently by <see cref="ItemDrop"/>.
+        /// </summary>
+        public virtual bool BreaksInstantly => false;
+
+        /// <summary>Horizontal velocity added while a player, NPC, or dropped item stands on this tile.</summary>
+        public virtual float ConveyorVelocity => 0f;
 
         /// <summary>
         /// Called once after id allocation and tile-array expansion. Set entries such as

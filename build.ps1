@@ -47,6 +47,52 @@ if (Test-Path $timfUi) {
   Write-Warning "Missing TIMF.UI artifact: $timfUi"
 }
 
+# --- Assemble the standalone Mod SDK (for developing mods OUTSIDE this repo) ---
+# Ships the redistributable compile references + shared build props + the dotnet new template,
+# so a mod author only needs this folder (TIMF_SDK) plus their own Terraria.exe.
+$SdkOut = Join-Path $Dist "ModSDK"
+$SdkProps = Join-Path $Root "sdk\TIMF.Mod.props"
+$TemplateSrc = Join-Path $Root "templates\timf-mod"
+$XnaSrc = Join-Path $Root "lib\xna"
+if (Test-Path $SdkProps) {
+  New-Item -ItemType Directory -Force -Path $SdkOut, (Join-Path $SdkOut "xna"), (Join-Path $SdkOut "templates") | Out-Null
+  Copy-Item $SdkProps $SdkOut -Force
+  Copy-Item $abs $SdkOut -Force
+  $harmony = Join-Path $Dist "0Harmony.dll"
+  if (Test-Path $harmony) { Copy-Item $harmony $SdkOut -Force }
+  else { Write-Warning "0Harmony.dll not in dist; mods referencing AccessTools will not compile against the SDK" }
+  if (Test-Path $XnaSrc) { Copy-Item (Join-Path $XnaSrc "*.dll") (Join-Path $SdkOut "xna") -Force }
+  else { Write-Warning "lib\xna missing; SDK will lack XNA reference assemblies" }
+  if (Test-Path $TemplateSrc) {
+    Copy-Item $TemplateSrc (Join-Path $SdkOut "templates") -Recurse -Force
+  }
+  $sdkReadme = @(
+    "# TIMF Mod SDK",
+    "",
+    "Build Terraria mods for TIMF outside the framework repo.",
+    "",
+    "## One-time setup",
+    "  setx TIMF_SDK `"<this folder>`"          # reopen the shell afterwards",
+    "  dotnet new install .\templates\timf-mod",
+    "",
+    "You also need a Terraria.exe compile reference (a legal copy you own):",
+    "  setx TIMF_TERRARIA `"C:\...\Terraria\Terraria.exe`"   # or a detected Steam install",
+    "",
+    "## Create and build a mod",
+    "  dotnet new timf-mod -n MyMod --display `"My Mod`" --modAuthor `"you`"",
+    "  cd MyMod",
+    "  dotnet build -c Release",
+    "",
+    "The build produces a drop-in folder dist\MyMod\ — copy it into your TIMF home's Mods\.",
+    "",
+    "Terraria.exe is NEVER included in this SDK; supply your own."
+  )
+  Set-Content -LiteralPath (Join-Path $SdkOut "README.md") -Value $sdkReadme -Encoding utf8
+  Write-Host "Mod SDK assembled -> $SdkOut"
+} else {
+  Write-Warning "Missing sdk\TIMF.Mod.props; skipping Mod SDK assembly."
+}
+
 Write-Host "==> Building native Bootstrap (MinGW i686)"
 # Prefer known i686 toolchains over a random PATH g++ (often mingw64, which cannot -m32 link).
 function Test-I686Gpp([string]$path) {

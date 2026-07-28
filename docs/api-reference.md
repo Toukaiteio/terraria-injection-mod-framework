@@ -686,9 +686,9 @@ bool TryGetRandomBestPrefix(int itemType, out int prefixId);
 
 - **内容键是持久身份。** `ModId/InternalName` 用于 ID 分配表和所有旁挂存档；运行时 `Type` 只是当前
   进程的数值索引，mod 不应把它写入自己的长期数据。
-- **原版存档保持原版可读。** 模组物品、图块、墙壁和自定义容器 ID 不会写进 `.plr` / `.wld`；没有
+- **原版存档保持原版可读。** 模组物品、图块、墙壁、自定义容器、NPC ID 和自定义 Buff ID 不会写进 `.plr` / `.wld`；没有
   TIMF 时原版仍可读取主体文件，只是暂时看不到旁挂内容。
-- **保存不能破坏运行中状态。** 为调用原版序列化而临时清空的物品、图块、墙壁和箱子，会在成功路径和
+- **保存不能破坏运行中状态。** 为调用原版序列化而临时清空的物品、图块、墙壁、箱子和 NPC，会在成功路径和
   异常路径中恢复；旁挂文件使用同目录临时文件、磁盘刷新和原子替换。
 - **暂时缺少 mod 不等于删除内容。** 无法解析的内容键会保留。只有玩家在对应坐标或槽位建立了新内容时，
   才以玩家当前修改为准并丢弃冲突的旧记录。
@@ -712,17 +712,25 @@ public sealed class MyContentMod : IContentMod
         registry.AddItem<MyPlaceableItem>();
         registry.AddTile<MyTile>();
         registry.AddWall<MyWall>();
+        registry.AddNpc<MyMerchant>();
+        registry.AddBiome<MyBiome>();
+        registry.AddProjectile<MyProjectile>();
+        registry.AddBuff<MyBuff>();
     }
 
     // IMod 成员略
 }
 ```
 
-### `TimfItem` / `TimfTile` / `TimfContainerTile` / `TimfWall`
+### `TimfItem` / `TimfPetItem` / `TimfTile` / `TimfContainerTile` / `TimfWall`
 
-两类定义都提供稳定的 `InternalName`、`ContentKey`、运行时分配的 `Type`、`Texture` 和
+这些内容定义都提供稳定的 `InternalName`、`ContentKey`、运行时分配的 `Type`、`Texture` 和
 `SetStaticDefaults()`。`TimfItem.SetDefaults()` 配置每个物品实例；`TimfTile.SetStaticDefaults()`
 用于写入 `Main.tileSolid[Type]`、`Main.tileFrameImportant[Type]` 等图块集合。
+
+物品的掉落环境属性仍使用扩容后的原版集合，在 `TimfItem.SetStaticDefaults()` 中设置，例如
+`ItemID.Sets.ItemNoGravity[Type]`、`IsLavaImmuneRegardlessOfRarity[Type]`、`CanFishInLava[Type]`。
+不要在 `SetDefaults()` 前访问这些数组，也不要缓存扩容前的数组引用。
 
 ```csharp
 public sealed class MyTile : TimfTile
@@ -766,6 +774,26 @@ public override void AddRecipes()
 `TileID.Torches`，即可获得地面、左右侧面和背景墙锚点，同时仍使用自己的图块 ID 和贴图。
 发光图块覆盖 `ModifyLight(i, j, ref red, ref green, ref blue)`；框架会把它与原版环境光按分量取最大值。
 
+纯装饰、小型水晶、伏魔剑一类“有少量行为的装饰”不需要单独的 ID 类型，均继承 `TimfTile`：
+
+- `RightClick()` 处理右键；`HitWire()` 处理电线脉冲；
+- 简单单格状态图块返回 `PreserveFrameData = true` 后可自行维护 `frameX/frameY`，框架仍会跳过不认识模组
+  ID 的原版 framing 主体；
+- `RandomUpdate()` 只在原版世界随机更新采样到该坐标时运行；
+- `NearbyEffects()` 处理邻近玩家的环境效果；`CanKillTile()` 控制能否破坏；
+- `BreaksInstantly = true` 表示一次有效镐击即破坏，适合松散石块、植物和小型水晶；是否掉落仍由
+  `ItemDrop` 独立控制，保持默认的 `0` 即无掉落；
+- `ConveyorVelocity` 非零时，框架把水平推动应用到玩家、NPC 和掉落物；
+- 草种子物品继承 `TimfGrassSeedItem` 并通过 `GrassTileType` 指向一个 `TimfGrassTile`；
+  `TimfGrassTile.CanGrowOn()` 可接受一个或多个基底类型，同时约束种子转化与自然蔓延目标；
+  `CanSpreadAt()` 提供受框架约束的四邻域草蔓延，不允许 mod 自行扫描或批量重写世界。和原版草种子一样，
+  “长草”的底层结果是把泥/土图格转换成草图格，而不是在原图格上叠加第二层。框架会在世界旁挂中按坐标
+  保存被替换的实际基底，镐击草时恢复原来的土、泥或自定义基底；`DefaultSubstrateTileType` 只用于兼容没有
+  来源记录的旧存档。地图生成 API 仍未开放。
+
+目前 `RightClick()` 的状态改写只在单机执行；多人客户端会拒绝本地执行以避免幽灵状态。服务端收到
+的电线事件会执行 `HitWire()` 并同步格子。客户端主动图块操作要等版本化的 TIMF 内容动作消息后开放。
+
 箱子类图块继承 `TimfContainerTile`。默认会复制原版 2×2 箱子的 `TileObjectData` 和放置后创建
 `Chest` 的钩子；定义仍需把运行时集合标成容器：
 
@@ -791,8 +819,148 @@ public sealed class MyChestTile : TimfContainerTile
 `TimfItem.SetDefaults()` 中设置 `Item.createWall = MyWall.RegisteredType`。自定义墙壁贴图使用原版
 144×180 墙壁帧表布局。
 
-`IContentLookup` 可从 `context.Services` 取得，提供 `ItemType<T>()`、`TileType<T>()`、
-`GetItem()`、`GetTile()`、`GetWall()`、`RegisteredItems`、`RegisteredTiles`、`RegisteredWalls`
+`TimfPetItem` 是安全的物品侧宠物 API：覆盖 `PetBuffType` 以激活宠物 Buff，光照宠物还需覆盖
+`PetSlot => TimfPetSlot.LightPet`。框架会强制设置 `Item.buffType` 及原版宠物分类数组，因此物品可通过
+拖放或快速装备进入原版宠物/光照宠物栏；装备状态由 `Player.UpdatePet` / `UpdatePetLight` 持续刷新。
+也可用 `PetBuffDuration`、`OnPetActivated()` 调整主动使用行为。覆盖 `PetProjectileType` 后，框架会在装备
+刷新后检查该玩家是否已有对应射弹，并且仅在数量为零时创建；这既可给原版宠物 Buff 声明其原版射弹，也可
+指向已注册的 `TimfProjectile`，不会每帧重复生成。宠物跟随、传送及具体 AI 仍由 Buff/Projectile 定义负责。
+
+### 自定义 NPC
+
+NPC 继承 `TimfNpc`，通过 `AddNpc<T>()` 注册。框架按内容键分配稳定的 NPC ID、扩容 `NPCID.Sets`、
+`Main.npcFrameCount`、贴图、名称缓存及 `SceneMetrics` 等按类型索引的集合。`SetDefaults()` 中配置每个
+实例的 `Npc.*` 字段（`width/height`、`lifeMax/life`、`damage/defense`、`aiStyle`、`knockBackResist`、
+`value`、`npcSlots`、`boss`、`friendly`、`townNPC`、`noGravity/noTileCollide`、`HitSound/DeathSound` 等）。
+
+- `Texture` 指向自带 PNG，也可复用原版或已注册物品的精灵作占位图（如 `"Content/TestSword"`）。多帧贴图
+  表通过 `FrameCount` 声明纵向帧数；单帧精灵保持默认即可。
+- `RunVanillaAI = true` 时在自定义 `AI()` 之后继续跑 `aiStyle` 的原版行为；`RunVanillaFrame = true` 时沿用
+  原版 `FindFrame` 的逐帧计算（框架随后把帧矩形钳制回贴图范围，保证复用小贴图的 NPC 不会取到越界帧）。
+- `IsTownNpc = true` 会置上 `townNPC`/`friendly`；覆盖 `GetChat(Player)` 提供对话文本。
+
+镇民可通过 `GetShop(Player)` 返回 `TimfShopEntry`（`ItemType`、`Stack`、`CustomPrice`、可选 `Condition`），
+框架在对话面板加“商店”按钮并用追加的商店槽打开原版商店 UI；`GetDailyQuests(Player)` 返回 `TimfDailyQuest`
+（需求物品/数量、`TimfQuestReward` 奖励、`TimfQuestStatusEffect` 状态效果），框架加“任务”按钮并处理交付与结算。
+
+`boss = true` 的 NPC 会自动获得原版底部大血条与小地图头像——框架把它的 `NPCID.Sets.BossHeadTextures[type]`
+指向一个已有的原版 Boss 头像索引作占位（不扩容 `NpcHeadBoss` 数组，避免捕获旧数组引用的渲染器越界抹掉
+HUD）；经 `NPC.NewNPC` 生成的自定义 Boss 还会补发本地化的“……已苏醒！”广播（原版仅在 `SpawnBoss` 触发）。
+
+```csharp
+public sealed class MyMerchant : TimfNpc
+{
+    public override string DisplayName => "My Merchant";
+    public override string Texture => "Content/MerchantSprite";
+    public override bool IsTownNpc => true;
+    public override bool RunVanillaAI => true;
+    public override bool RunVanillaFrame => true;
+
+    public override void SetDefaults()
+    {
+        Npc.width = 18; Npc.height = 40;
+        Npc.lifeMax = 250; Npc.life = 250; Npc.defense = 10;
+        Npc.aiStyle = 7; Npc.friendly = true; Npc.townNPC = true;
+    }
+
+    public override string GetChat(Player player) => "Buy something, will ya?";
+
+    public override IReadOnlyList<TimfShopEntry> GetShop(Player player) => new[]
+    {
+        new TimfShopEntry { ItemType = MyMaterial.RegisteredType, Stack = 1, CustomPrice = 100 }
+    };
+}
+```
+
+自定义 NPC 的绘制由框架接管：原版 `Main.DrawNPCs` 绘制循环用 `type < NPCID.Count` 过滤，而该比较在编译
+`Terraria.dll` 时已把原版 `NPCID.Count` 内联进字节码，运行时扩容 `NPCID.Count` 字段对它无效——因此 ID 超出
+原版数量的自定义 NPC 能正常更新却永远进不了原版身体绘制。框架在 `DrawNPCs` 后缀里用真实贴图、钳制后的帧、
+光照颜色和与原版一致的坐标公式自行绘制每个框架 NPC，因此高 ID 与复用单帧贴图的 NPC 都能稳定显示。NPC ID 会
+超出原版网络协议假定的范围，内容模组必须声明 `Optional` 或 `Required`，不能与缺少相同内容的纯原版端共享。
+
+### 自定义射弹
+
+射弹继承 `TimfProjectile`，通过 `AddProjectile<T>()` 注册。框架分配稳定映射的 Projectile ID，扩容
+`ProjectileID.Sets`、`Main.projFrames/projHostile/projHook/projPet`、贴图和语言缓存，并回填启动阶段已经
+构造的 `Player.ownedProjectileCounts`。定义可以实现 `SetDefaults()`、`AI()`、`OnHitNpc()`、
+`OnHitPlayer()` 和 `OnKill()`；`RunVanillaAI = true` 时，在自定义 `AI()` 后继续使用 `aiStyle` 的原版逻辑。
+
+```csharp
+public sealed class MyBolt : TimfProjectile
+{
+    public static int RegisteredType { get; private set; }
+    public override bool RunVanillaAI => true;
+
+    public override void SetStaticDefaults() => RegisteredType = Type;
+
+    public override void SetDefaults()
+    {
+        Projectile.width = 10;
+        Projectile.height = 10;
+        Projectile.friendly = true;
+        Projectile.penetrate = 1;
+        Projectile.timeLeft = 300;
+        Projectile.aiStyle = 1;
+    }
+
+    public override void OnHitNpc(NPC target) => target.AddBuff(BuffID.OnFire, 180);
+}
+```
+
+武器在 `TimfItem.SetDefaults()` 中设置 `Item.shoot = MyBolt.RegisteredType` 和 `Item.shootSpeed`。射弹是短寿命
+网络实体，不写入世界或玩家存档。Projectile ID 保持在原版网络协议的 Int16 范围内；内容模组仍必须声明
+`Optional` 或 `Required`，不能与缺少相同内容的纯原版端交换自定义射弹。
+
+### 自定义增益与减益
+
+状态定义继承 `TimfBuff`，通过 `AddBuff<T>()` 注册。`IsDebuff` 控制减益标志，`CanBeCleared` 控制护士能否
+移除，`Save` 控制退出角色后是否保留；`Update(Player, ref buffIndex)` 在效果有效的每个 tick 调用。
+框架扩容 Buff 集合、贴图、名称/描述缓存和现存 Player/NPC 的 `buffImmune`，但 `TimfBuff.Update` 当前只
+面向玩家效果；NPC 身上的复杂自定义状态机尚未公开。
+
+```csharp
+public sealed class QuestBlessing : TimfBuff
+{
+    public static int RegisteredType { get; private set; }
+    public override string DisplayName => "Quest Blessing";
+    public override string Description => "+8 defense";
+    public override void SetStaticDefaults() => RegisteredType = Type;
+    public override void Update(Player player, ref int buffIndex) => player.statDefense += 8;
+}
+```
+
+用 `player.AddBuff(QuestBlessing.RegisteredType, durationTicks)` 施加。可保存的自定义状态在原版写 `.plr` 前
+临时清零，随后恢复运行中角色，并以内容键写入 `<player>.plr.timfbuffs`；文件使用临时文件、磁盘刷新、
+原子替换和备份。损坏或未知版本的旁挂会保留原件且禁止覆盖；暂时缺失的模组记录也会保留。`Save=false`
+的效果不会进入 `.plr` 或旁挂，但保存过程不会错误清除其运行时状态。
+
+### 自定义 NPC、商店与每日任务
+
+NPC 定义继承 `TimfNpc`，通过 `AddNpc<T>()` 注册。框架为其分配运行时 NPC ID、扩容 NPC 索引数组、
+注入贴图，并桥接 `SetDefaults()`、`AI()`、`FindFrame()`、`GetChat()`。`IsTownNpc` 为 true 时会自动设置
+友好城镇 NPC 标志；只有明确返回 `RunVanillaAI` / `RunVanillaFrame` 才会在自定义回调后继续运行原版逻辑。
+
+`GetShop()` 返回 `TimfShopEntry`，支持物品、数量、自定义价格和玩家条件。`GetDailyQuests()` 返回
+`TimfDailyQuest` 列表；框架按世界任务日和 NPC 内容键确定性轮换一个任务，检查并扣除需求物品，再通过
+原版拾取/溢出管线发放 `TimfQuestReward`，并施加 `StatusEffects` 中的 `TimfQuestStatusEffect`（可引用
+原版或自定义 Buff ID，`Duration` 单位为 tick）。每名玩家每天只能完成一次。当前任务提交只在单机开放；
+多人模式要等服务器权威的自定义内容消息协议完成，不能由客户端本地发奖。
+
+`SaveToWorld` 控制 NPC 是否进入旁挂，城镇 NPC 默认开启。所有运行中的自定义 NPC 在原版 `.wld` 保存
+期间都会隐藏，需持久化的实例以内容键写入 `<world>.wld.timf-npcs`；保存成功或异常都会恢复原对象。
+加载时可解析记录恢复为当前运行时 ID，暂时缺少模组的记录继续保留。
+
+### 自定义生物群系
+
+`TimfBiome.IsActive(player, sceneMetrics, content)` 使用当前位置与已扩容的 `SceneMetrics` 判定成员关系，
+不保存数值 ID。`OnEnter()`、`OnLeave()` 各在边界变化时调用一次，`Update()` 在群系有效期间随原版
+`Player.UpdateBiomes` 调用。当前 SceneMetrics 生命周期只派发给本地渲染玩家，适合客户端环境表现；
+专用服上的权威群系效果要等待逐玩家扫描管线。背景、音乐、刷怪池和地图生成尚未公开，mod 不应通过
+反射改写这些表。
+
+`IContentLookup` 可从 `context.Services` 取得，提供 `ItemType<T>()`、`TileType<T>()`、`NpcType<T>()`、
+`ProjectileType<T>()`、`BuffType<T>()`、对应的 `Get*()`、`IsBiomeActive<T>()`、`RegisteredItems`、
+`RegisteredTiles`、`RegisteredWalls`、`RegisteredNpcs`、`RegisteredBiomes`、`RegisteredProjectiles`、`RegisteredBuffs`
 和诊断用 `Report()`。
 
 ### 图块与墙壁存档规则
@@ -819,6 +987,15 @@ public sealed class MyChestTile : TimfContainerTile
 
 > `InternalName` 是存档身份的一部分，发布后不要改名。图块贴图必须随 mod 部署，路径规则与物品一致，
 > 默认是 `Content/<InternalName>.png`。
+
+### 当前明确不支持的内容边界
+
+- 安全的地图生成改写、群系地形生成；
+- 自定义 NPC 刷怪池、NPC 自定义 Buff 状态机、网络化复杂战斗/任务状态，以及背景和音乐的声明式替换；
+- 声明式宠物跟随/传送 AI 模板（装备槽、Buff 与唯一射弹生命周期已开放）。
+
+这些能力不能通过直接 Harmony、`MethodInfo.Invoke` 或写入原版固定数组绕过；新增管线必须先具备稳定 ID、
+数组覆盖验证、贴图注入、联网权威和内容键旁挂策略。
 
 ---
 

@@ -1,0 +1,9 @@
+{
+  "Keybind.Toggle": "MOD_DISPLAY_NAME Toggle",
+  "Settings.Enabled": "Enabled",
+  "Settings.Toggle": "Toggle key: {0}",
+  "Settings.Unbound": "(unbound)",
+  "Chat.On": "MOD_DISPLAY_NAME: ON",
+  "Chat.Off": "MOD_DISPLAY_NAME: OFF",
+  "Chat.Ready": "MOD_DISPLAY_NAME loaded. Press {0} to toggle."
+}

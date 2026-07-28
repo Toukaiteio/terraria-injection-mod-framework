@@ -1,0 +1,30 @@
+{
+  "$schema": "http://json.schemastore.org/template",
+  "author": "TIMF",
+  "classifications": [ "Terraria", "TIMF", "Mod", "Client" ],
+  "name": "TIMF Terraria Mod (Client)",
+  "identity": "TIMF.Mod.Client.CSharp",
+  "shortName": "timf-mod",
+  "tags": {
+    "language": "C#",
+    "type": "project"
+  },
+  "sourceName": "MyMod",
+  "preferNameDirectory": true,
+  "symbols": {
+    "display": {
+      "type": "parameter",
+      "datatype": "string",
+      "defaultValue": "My Mod",
+      "replaces": "MOD_DISPLAY_NAME",
+      "description": "Human-friendly display name shown in chat, keybind list and settings."
+    },
+    "modAuthor": {
+      "type": "parameter",
+      "datatype": "string",
+      "defaultValue": "Unknown",
+      "replaces": "MOD_AUTHOR",
+      "description": "Mod author name (recorded in the load log)."
+    }
+  }
+}

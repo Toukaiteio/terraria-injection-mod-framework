@@ -28,6 +28,21 @@ namespace TIMF.Content
 
         /// <summary>Register an already-constructed wall definition.</summary>
         void AddWall(TimfWall wall);
+
+        /// <summary>Register an NPC definition with a public parameterless constructor.</summary>
+        void AddNpc<TNpc>() where TNpc : TimfNpc, new();
+        /// <summary>Register an already-constructed NPC definition.</summary>
+        void AddNpc(TimfNpc npc);
+        /// <summary>Register a runtime biome predicate.</summary>
+        void AddBiome<TBiome>() where TBiome : TimfBiome, new();
+        /// <summary>Register an already-constructed runtime biome predicate.</summary>
+        void AddBiome(TimfBiome biome);
+        /// <summary>Register a projectile definition.</summary>
+        void AddProjectile<TProjectile>() where TProjectile : TimfProjectile, new();
+        void AddProjectile(TimfProjectile projectile);
+        /// <summary>Register a player buff or debuff definition.</summary>
+        void AddBuff<TBuff>() where TBuff : TimfBuff, new();
+        void AddBuff(TimfBuff buff);
     }
 
     /// <summary>
@@ -58,9 +73,26 @@ namespace TIMF.Content
         /// <summary>Definition behind an allocated tile id, or null.</summary>
         TimfTile GetTile(int type);
 
+        /// <summary>Allocated wall id for a registered definition type, or 0.</summary>
         int WallType<TWall>() where TWall : TimfWall;
+        /// <summary>Allocated wall id by stable content key, or 0.</summary>
         int WallType(string contentKey);
+        /// <summary>Definition behind an allocated wall id, or null.</summary>
         TimfWall GetWall(int type);
+        /// <summary>Allocated NPC id for a registered definition type, or 0.</summary>
+        int NpcType<TNpc>() where TNpc : TimfNpc;
+        /// <summary>Allocated NPC id by stable content key, or 0.</summary>
+        int NpcType(string contentKey);
+        /// <summary>Definition behind an allocated NPC id, or null.</summary>
+        TimfNpc GetNpc(int type);
+        /// <summary>Evaluate a registered biome for the current local SceneMetrics.</summary>
+        bool IsBiomeActive<TBiome>(Terraria.Player player) where TBiome : TimfBiome;
+        int ProjectileType<TProjectile>() where TProjectile : TimfProjectile;
+        int ProjectileType(string contentKey);
+        TimfProjectile GetProjectile(int type);
+        int BuffType<TBuff>() where TBuff : TimfBuff;
+        int BuffType(string contentKey);
+        TimfBuff GetBuff(int type);
 
         /// <summary>First item id above the vanilla range. Ids below this are vanilla.</summary>
         int VanillaItemCount { get; }
@@ -69,6 +101,9 @@ namespace TIMF.Content
         int VanillaTileCount { get; }
 
         int VanillaWallCount { get; }
+        int VanillaNpcCount { get; }
+        int VanillaProjectileCount { get; }
+        int VanillaBuffCount { get; }
 
         /// <summary>Every registered definition, in allocation order.</summary>
         System.Collections.Generic.IReadOnlyList<TimfItem> RegisteredItems { get; }
@@ -77,6 +112,10 @@ namespace TIMF.Content
         System.Collections.Generic.IReadOnlyList<TimfTile> RegisteredTiles { get; }
 
         System.Collections.Generic.IReadOnlyList<TimfWall> RegisteredWalls { get; }
+        System.Collections.Generic.IReadOnlyList<TimfNpc> RegisteredNpcs { get; }
+        System.Collections.Generic.IReadOnlyList<TimfBiome> RegisteredBiomes { get; }
+        System.Collections.Generic.IReadOnlyList<TimfProjectile> RegisteredProjectiles { get; }
+        System.Collections.Generic.IReadOnlyList<TimfBuff> RegisteredBuffs { get; }
 
         /// <summary>
         /// Human-readable state of the content subsystem: id range, how many vanilla arrays

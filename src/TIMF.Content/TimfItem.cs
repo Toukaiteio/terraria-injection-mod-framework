@@ -74,5 +74,17 @@ namespace TIMF.Content
         /// </summary>
         /// <param name="hideVisual">True when the slot is set to hide its visual effect.</param>
         public virtual void UpdateAccessory(Player player, bool hideVisual) { }
+
+        /// <summary>Called every tick while this item is in the local player's inventory.</summary>
+        public virtual void UpdateInventory(Player player) { }
+
+        /// <summary>Called every tick while this is the player's selected held item.</summary>
+        public virtual void HoldItem(Player player) { }
+
+        /// <summary>Return false to prevent this custom item from beginning a use.</summary>
+        public virtual bool CanUseItem(Player player) => true;
+
+        /// <summary>Called once when a use begins. Suitable for pet/light-pet buff items.</summary>
+        public virtual void OnUseItem(Player player) { }
     }
 }

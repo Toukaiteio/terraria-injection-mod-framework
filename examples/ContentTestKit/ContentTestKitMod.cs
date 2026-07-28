@@ -27,26 +27,56 @@ namespace ContentTestKit
         private readonly List<string> _probeResults = new List<string>();
         private SensitiveOperationRequest _securityRequest;
         private ITerrariaReflection _reflection;
+        private int _settingsTab;
+
+        private static readonly string[] SettingsTabs =
+        {
+            "状态", "物品", "世界内容", "NPC / 状态", "诊断 / 安全"
+        };
+
+        // Keep the settings window inside common 720p/768p viewports. Each tab owns one child
+        // viewport; content taller than this is clipped and reachable by wheel or scrollbar.
+        private const float SettingsPageHeight = 400f;
 
         public string Name => "Content Test Kit";
-        public string Version => "1.1.0";
+        public string Version => "1.3.0";
 
         public void AddContent(IContentRegistry registry)
         {
             registry.AddItem<TestSword>();
             registry.AddItem<TestMaterial>();
             registry.AddItem<TestPotion>();
+            registry.AddItem<TestAmbientItem>();
             registry.AddItem<TestAccessory>();
             registry.AddItem<TestPlaceable>();
             registry.AddItem<TestTorchItem>();
             registry.AddItem<TestWallItem>();
             registry.AddItem<TestWorkbenchItem>();
             registry.AddItem<TestChestItem>();
+            registry.AddItem<TestDecorItem>();
+            registry.AddItem<TestSwitchItem>();
+            registry.AddItem<TestConveyorItem>();
+            registry.AddItem<TestPetWhistle>();
+            registry.AddItem<TestLightPetLantern>();
+            registry.AddItem<TestProjectileWeapon>();
+            registry.AddItem<TestStatusProbeItem>();
+            registry.AddItem<TestGrassItem>();
             registry.AddTile<TestTorchTile>();
             registry.AddTile<TestSpecialTorchTile>();
             registry.AddTile<TestWorkbenchTile>();
             registry.AddTile<TestChestTile>();
+            registry.AddTile<TestDecorTile>();
+            registry.AddTile<TestSwitchTile>();
+            registry.AddTile<TestConveyorTile>();
+            registry.AddTile<TestGrassTile>();
             registry.AddWall<TestWall>();
+            registry.AddBiome<TestCrystalBiome>();
+            registry.AddNpc<TestMerchantNpc>();
+            registry.AddNpc<TestMonsterNpc>();
+            registry.AddNpc<TestBossNpc>();
+            registry.AddProjectile<TestBoltProjectile>();
+            registry.AddBuff<TestQuestBlessingBuff>();
+            registry.AddBuff<TestQuestBurdenDebuff>();
         }
 
         public void Load(IModContext context)
@@ -73,65 +103,128 @@ namespace ContentTestKit
                 return;
             }
 
-            ui.TextColored("=== 内容子系统状态 ===", new Color(255, 220, 150));
-            foreach (var line in _content.Report())
+            ui.TabBar("content-test-pages", SettingsTabs, ref _settingsTab);
+            switch (_settingsTab)
             {
-                var bad = line.Contains("NOT expanded") || line.Contains(": 0 loaded");
-                ui.TextColored(line, bad ? new Color(255, 120, 120) : new Color(190, 220, 190));
+                case 0: DrawStatusPage(ui); break;
+                case 1: DrawItemsPage(ui); break;
+                case 2: DrawWorldContentPage(ui); break;
+                case 3: DrawNpcAndEffectsPage(ui); break;
+                default: DrawDiagnosticsPage(ui); break;
             }
-
-            ui.Separator();
-            ui.TextColored("=== 已注册物品 ===", new Color(255, 220, 150));
-            foreach (var item in _content.RegisteredItems)
-            {
-                ui.Text(item.ContentKey + "   id=" + item.Type);
-                ui.SameLine();
-                if (ui.Button("给我##" + item.Type))
-                    _status = GiveItem(item.Type, item.DisplayName);
-            }
-
-            ui.Separator();
-            ui.TextColored("=== 已注册图块 ===", new Color(255, 220, 150));
-            foreach (var tile in _content.RegisteredTiles)
-                ui.Text(tile.ContentKey + "   id=" + tile.Type);
-
-            ui.Separator();
-            ui.TextColored("=== 已注册墙壁 ===", new Color(255, 220, 150));
-            foreach (var wall in _content.RegisteredWalls)
-                ui.Text(wall.ContentKey + "   id=" + wall.Type);
-
-            ui.Separator();
-            if (ui.Button("全部给我一份"))
-            {
-                var n = 0;
-                foreach (var item in _content.RegisteredItems)
-                    if (GiveItem(item.Type, item.DisplayName).StartsWith("已放入"))
-                        n++;
-                _status = "已放入 " + n + " 件物品到背包";
-            }
-
-            ui.SameLine();
-            if (ui.Button("探测扩容数组是否可寻址"))
-                RunArrayProbe();
-
-            if (_probeResults.Count > 0)
-            {
-                ui.Separator();
-                ui.TextColored("=== 数组扩容探测 ===", new Color(255, 220, 150));
-                foreach (var r in _probeResults)
-                    ui.TextColored(r, r.StartsWith("OK") ? new Color(150, 230, 150) : new Color(255, 120, 120));
-            }
-
-            ui.Separator();
-            ui.TextColored("=== 安全授权管线测试 ===", new Color(255, 220, 150));
-            ui.Text("测试目标是 TIMF 核心日志；不会自动读取，授权后仍需再次确认执行。");
-            DrawSecurityTest(ui);
 
             if (!string.IsNullOrEmpty(_status))
             {
                 ui.Separator();
                 ui.TextColored(_status, new Color(200, 220, 160));
             }
+        }
+
+        private void DrawStatusPage(IImmediateModeUi ui)
+        {
+            if (ui.BeginChild("content-status-page", SettingsPageHeight))
+            {
+                ui.TextColored("=== 内容子系统状态 ===", new Color(255, 220, 150));
+                foreach (var line in _content.Report())
+                {
+                    var bad = line.Contains("NOT expanded") || line.Contains(": 0 loaded");
+                    ui.TextColored(line, bad ? new Color(255, 120, 120) : new Color(190, 220, 190));
+                }
+            }
+            ui.EndChild();
+        }
+
+        private void DrawItemsPage(IImmediateModeUi ui)
+        {
+            if (ui.BeginChild("content-items-page", SettingsPageHeight))
+            {
+                ui.TextColored("=== 已注册物品 ===", new Color(255, 220, 150));
+                foreach (var item in _content.RegisteredItems)
+                {
+                    ui.Text(item.ContentKey + "   id=" + item.Type);
+                    ui.SameLine();
+                    if (ui.Button("给我##" + item.Type))
+                        _status = GiveItem(item.Type, item.DisplayName);
+                }
+
+                ui.Separator();
+                if (ui.Button("全部给我一份"))
+                {
+                    var n = 0;
+                    foreach (var item in _content.RegisteredItems)
+                        if (GiveItem(item.Type, item.DisplayName).StartsWith("已放入")) n++;
+                    _status = "已放入 " + n + " 件物品到背包";
+                }
+            }
+            ui.EndChild();
+        }
+
+        private void DrawWorldContentPage(IImmediateModeUi ui)
+        {
+            if (ui.BeginChild("content-world-page", SettingsPageHeight))
+            {
+                ui.TextColored("=== 已注册图块 ===", new Color(255, 220, 150));
+                foreach (var tile in _content.RegisteredTiles)
+                    ui.Text(tile.ContentKey + "   id=" + tile.Type);
+
+                ui.Separator();
+                ui.TextColored("=== 已注册墙壁 ===", new Color(255, 220, 150));
+                foreach (var wall in _content.RegisteredWalls)
+                    ui.Text(wall.ContentKey + "   id=" + wall.Type);
+
+                ui.Separator();
+                ui.TextColored("=== 已注册生物群系 ===", new Color(255, 220, 150));
+                foreach (var biome in _content.RegisteredBiomes)
+                    ui.Text(biome.ContentKey + "   active="
+                            + _content.IsBiomeActive<TestCrystalBiome>(Main.LocalPlayer));
+            }
+            ui.EndChild();
+        }
+
+        private void DrawNpcAndEffectsPage(IImmediateModeUi ui)
+        {
+            if (ui.BeginChild("content-npc-effects-page", SettingsPageHeight))
+            {
+                ui.TextColored("=== 已注册 NPC ===", new Color(255, 220, 150));
+                foreach (var npc in _content.RegisteredNpcs)
+                    ui.Text(npc.ContentKey + "   id=" + npc.Type);
+                if (ui.Button("在玩家附近生成测试商人"))
+                    _status = SpawnTestMerchant();
+                if (ui.Button("在玩家附近生成敌对怪物"))
+                    _status = SpawnNpcNearPlayer<TestMonsterNpc>("测试怪物", 200, 0);
+                if (ui.Button("在玩家附近生成敌对 Boss"))
+                    _status = SpawnNpcNearPlayer<TestBossNpc>("测试 Boss", 0, -220);
+
+                ui.Separator();
+                ui.TextColored("=== 已注册射弹 ===", new Color(255, 220, 150));
+                foreach (var projectile in _content.RegisteredProjectiles)
+                    ui.Text(projectile.ContentKey + "   id=" + projectile.Type);
+
+                ui.Separator();
+                ui.TextColored("=== 已注册增益 / 减益 ===", new Color(255, 220, 150));
+                foreach (var buff in _content.RegisteredBuffs)
+                    ui.Text(buff.ContentKey + "   id=" + buff.Type
+                            + (buff.IsDebuff ? " [debuff]" : " [buff]"));
+            }
+            ui.EndChild();
+        }
+
+        private void DrawDiagnosticsPage(IImmediateModeUi ui)
+        {
+            if (ui.BeginChild("content-diagnostics-page", SettingsPageHeight))
+            {
+                ui.TextColored("=== 数组扩容探测 ===", new Color(255, 220, 150));
+                if (ui.Button("探测扩容数组是否可寻址")) RunArrayProbe();
+                foreach (var r in _probeResults)
+                    ui.TextColored(r, r.StartsWith("OK")
+                        ? new Color(150, 230, 150) : new Color(255, 120, 120));
+
+                ui.Separator();
+                ui.TextColored("=== 安全授权管线测试 ===", new Color(255, 220, 150));
+                ui.Text("测试目标是 TIMF 核心日志；不会自动读取，授权后仍需再次确认执行。");
+                DrawSecurityTest(ui);
+            }
+            ui.EndChild();
         }
 
         private void DrawSecurityTest(IImmediateModeUi ui)
@@ -219,6 +312,38 @@ namespace ContentTestKit
             }
         }
 
+        private string SpawnTestMerchant()
+        {
+            try
+            {
+                var p = Main.LocalPlayer;
+                if (p == null) return "请先进入世界";
+                if (Main.netMode == 1) return "联机客户端不能自行生成 NPC，请由服务器生成";
+                var type = _content.NpcType<TestMerchantNpc>();
+                var source = p.GetNPCSource_TileInteraction(Player.tileTargetX, Player.tileTargetY);
+                var index = NPC.NewNPC(source, (int)p.Center.X + 64, (int)p.Center.Y, type);
+                return index >= 0 && index < Main.npc.Length ? "已生成测试商人：测试对话、商店、每日任务和保存重进" : "NPC 生成失败";
+            }
+            catch (Exception ex) { return "NPC 生成失败：" + ex.Message; }
+        }
+
+        /// <summary>Spawns any registered framework NPC near the player, offset by (dx, dy) pixels.</summary>
+        private string SpawnNpcNearPlayer<TNpc>(string label, int dx, int dy) where TNpc : TimfNpc
+        {
+            try
+            {
+                var p = Main.LocalPlayer;
+                if (p == null) return "请先进入世界";
+                if (Main.netMode == 1) return "联机客户端不能自行生成 NPC，请由服务器生成";
+                var type = _content.NpcType<TNpc>();
+                if (type <= 0) return label + " 未注册";
+                var source = p.GetNPCSource_TileInteraction(Player.tileTargetX, Player.tileTargetY);
+                var index = NPC.NewNPC(source, (int)p.Center.X + dx, (int)p.Center.Y + dy, type);
+                return index >= 0 && index < Main.npc.Length ? "已生成" + label : label + " 生成失败";
+            }
+            catch (Exception ex) { return label + " 生成失败：" + ex.Message; }
+        }
+
         /// <summary>
         /// Reads and writes a few id-indexed vanilla arrays at a modded index. If expansion
         /// missed an array this throws IndexOutOfRange here — in a controlled place — instead
@@ -262,9 +387,9 @@ namespace ContentTestKit
                 var asset = arr.GetValue(id);
                 if (asset == null) throw new InvalidOperationException("贴图槽位为 null（会导致物品栏绘制中断）");
 
-                var loadedProperty = asset.GetType().GetProperty("IsLoaded");
-                var loaded = loadedProperty == null ? null : _reflection.GetPropertyValue(loadedProperty, asset, null);
-                if (loaded is bool b && !b) throw new InvalidOperationException("Asset 未标记为已加载");
+                // Do not inspect ReLogic.Asset<T>.IsLoaded through ITerrariaReflection: the
+                // security service deliberately restricts reflection to Terraria's assembly.
+                // A non-null slot is the invariant vanilla inventory drawing requires here.
             });
             Probe("Lang.GetItemNameValue", () =>
             {
@@ -336,6 +461,71 @@ namespace ContentTestKit
                     if (arr.GetValue(wallId) == null) throw new InvalidOperationException("墙壁贴图槽位为 null");
                 });
             }
+
+            if (_content.RegisteredNpcs.Count > 0)
+            {
+                var npcId = _content.RegisteredNpcs[0].Type;
+                Probe("NPCID / Main NPC arrays", () =>
+                {
+                    var frames = Main.npcFrameCount[npcId];
+                    Main.npcFrameCount[npcId] = frames;
+                    var noAggro = Main.LocalPlayer.npcTypeNoAggro[npcId];
+                    Main.LocalPlayer.npcTypeNoAggro[npcId] = noAggro;
+                    WorldGen.TownManager.HasRoomQuick(npcId);
+                    if (!Terraria.ID.ContentSamples.NpcsByNetId.ContainsKey(npcId))
+                        throw new InvalidOperationException("ContentSamples 缺少 NPC 样本");
+                    var field = typeof(Main).Assembly
+                        .GetType("Terraria.GameContent.TextureAssets")
+                        ?.GetField("Npc", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static);
+                    var arr = field == null ? null : _reflection.GetFieldValue(field, null) as Array;
+                    if (arr == null || npcId >= arr.Length) throw new InvalidOperationException("NPC 贴图数组未扩容");
+                    if (arr.GetValue(npcId) == null) throw new InvalidOperationException("NPC 贴图槽位为 null");
+                });
+            }
+
+            if (_content.RegisteredProjectiles.Count > 0)
+            {
+                var projectileId = _content.RegisteredProjectiles[0].Type;
+                Probe("ProjectileID / player projectile arrays", () =>
+                {
+                    var frames = Main.projFrames[projectileId];
+                    Main.projFrames[projectileId] = frames;
+                    var hostile = Main.projHostile[projectileId];
+                    Main.projHostile[projectileId] = hostile;
+                    var owned = Main.LocalPlayer.ownedProjectileCounts[projectileId];
+                    Main.LocalPlayer.ownedProjectileCounts[projectileId] = owned;
+                });
+                Probe("TextureAssets.Projectile", () => ProbeTextureArray("Projectile", projectileId));
+            }
+
+            if (_content.RegisteredBuffs.Count > 0)
+            {
+                var buffId = _content.RegisteredBuffs[0].Type;
+                Probe("BuffID / buff immunity arrays", () =>
+                {
+                    var debuff = Main.debuff[buffId];
+                    Main.debuff[buffId] = debuff;
+                    var immune = Main.LocalPlayer.buffImmune[buffId];
+                    Main.LocalPlayer.buffImmune[buffId] = immune;
+                    if (Main.npc != null && Main.npc.Length > 0 && Main.npc[0] != null)
+                    {
+                        var npcImmune = Main.npc[0].buffImmune[buffId];
+                        Main.npc[0].buffImmune[buffId] = npcImmune;
+                    }
+                    if (string.IsNullOrEmpty(Lang.GetBuffName(buffId)))
+                        throw new InvalidOperationException("Buff 名称为空");
+                });
+                Probe("TextureAssets.Buff", () => ProbeTextureArray("Buff", buffId));
+            }
+        }
+
+        private void ProbeTextureArray(string fieldName, int id)
+        {
+            var field = typeof(Main).Assembly.GetType("Terraria.GameContent.TextureAssets")
+                ?.GetField(fieldName, System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static);
+            var arr = field == null ? null : _reflection.GetFieldValue(field, null) as Array;
+            if (arr == null || id >= arr.Length) throw new InvalidOperationException(fieldName + " 贴图数组未扩容");
+            if (arr.GetValue(id) == null) throw new InvalidOperationException(fieldName + " 贴图槽位为 null");
         }
 
         private void Probe(string label, Action action)

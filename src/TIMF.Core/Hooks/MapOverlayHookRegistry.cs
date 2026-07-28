@@ -10,8 +10,9 @@ namespace TIMF.Core.Hooks
     internal sealed class MapOverlayHookRegistry
         : HookRegistryBase<IMapOverlayHook>, IMapOverlayHookRegistry
     {
-        public MapOverlayHookRegistry(ILogger log, Func<object, bool> executionAllowed)
-            : base(log, executionAllowed) { }
+        public MapOverlayHookRegistry(ILogger log, Func<object, bool> executionAllowed,
+            Action<object, string, Exception> faultReporter = null)
+            : base(log, executionAllowed, faultReporter) { }
 
         /// <summary>Dispatch to all hooks. Returns hover text if any hook set it.</summary>
         public string Dispatch(MapOverlayInfo info, string hoverText)
@@ -28,7 +29,7 @@ namespace TIMF.Core.Hooks
                 }
                 catch (Exception ex)
                 {
-                    Report("OnDrawMap", ex);
+                    Report(snapshot[i], "OnDrawMap", ex);
                 }
             }
 

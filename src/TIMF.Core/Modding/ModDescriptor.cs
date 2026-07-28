@@ -36,6 +36,14 @@ namespace TIMF.Core.Modding
         public bool UserEnabled { get; set; } = true;
         public bool SessionAllowed { get; set; } = true;
         public string SessionLockReason { get; set; }
+
+        /// <summary>
+        /// Set by <see cref="ModWatchdog"/> when the mod faults repeatedly inside framework-dispatched
+        /// callbacks. A runtime-disabled mod stays resident but receives no further callbacks (see
+        /// <c>ModLoader.IsExecutionAllowed</c>), the same fail-inert model the session gate uses.
+        /// </summary>
+        public bool RuntimeDisabled { get; set; }
+        public string RuntimeDisableReason { get; set; }
         public bool ServerActive { get; set; }
         public IModContext Context { get; set; }
 

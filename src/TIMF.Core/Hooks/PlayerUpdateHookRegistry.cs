@@ -10,8 +10,9 @@ namespace TIMF.Core.Hooks
     internal sealed class PlayerUpdateHookRegistry
         : HookRegistryBase<IPlayerUpdateHook>, IPlayerUpdateHookRegistry
     {
-        public PlayerUpdateHookRegistry(ILogger log, Func<object, bool> executionAllowed)
-            : base(log, executionAllowed) { }
+        public PlayerUpdateHookRegistry(ILogger log, Func<object, bool> executionAllowed,
+            Action<object, string, Exception> faultReporter = null)
+            : base(log, executionAllowed, faultReporter) { }
 
         public void Dispatch()
         {
@@ -27,7 +28,7 @@ namespace TIMF.Core.Hooks
                 }
                 catch (Exception ex)
                 {
-                    Report("OnPreUpdate", ex);
+                    Report(snapshot[i], "OnPreUpdate", ex);
                 }
             }
         }

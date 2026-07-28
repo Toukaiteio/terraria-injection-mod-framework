@@ -1,0 +1,115 @@
+<Project>
+  <!--
+    TIMF Mod SDK — shared build logic for a Terraria TIMF mod built OUTSIDE the framework repo.
+    A generated mod's .csproj imports this file; every reference and target a mod needs lives here,
+    so the .csproj itself stays tiny.
+
+    Build-time requirements:
+      - TIMF_SDK environment variable (or a TimfSdkDir property) pointing at this SDK folder.
+      - A Terraria.exe COMPILE reference: TIMF_TERRARIA environment variable, or a detected Steam
+        install. Terraria.exe is a game binary you own; it is never redistributed with the SDK.
+
+    This props is self-locating: it uses its own folder as the SDK root, so the redistributable
+    reference DLLs (TIMF.Abstractions.dll, 0Harmony.dll) and the xna/ reference assemblies are
+    always found relative to it regardless of how TIMF_SDK is spelled.
+  -->
+  <PropertyGroup>
+    <!-- Authoritative SDK root: the directory this props physically lives in (trailing slash). -->
+    <TimfSdkDir>$(MSBuildThisFileDirectory)</TimfSdkDir>
+    <TimfXnaDir Condition="'$(TimfXnaDir)'==''">$(TimfSdkDir)xna</TimfXnaDir>
+
+    <TargetFramework Condition="'$(TargetFramework)'==''">net48</TargetFramework>
+    <LangVersion Condition="'$(LangVersion)'==''">latest</LangVersion>
+    <Nullable Condition="'$(Nullable)'==''">disable</Nullable>
+    <PlatformTarget Condition="'$(PlatformTarget)'==''">x86</PlatformTarget>
+    <AllowUnsafeBlocks Condition="'$(AllowUnsafeBlocks)'==''">false</AllowUnsafeBlocks>
+    <AssemblyName Condition="'$(AssemblyName)'==''">$(MSBuildProjectName)</AssemblyName>
+    <RootNamespace Condition="'$(RootNamespace)'==''">$(MSBuildProjectName)</RootNamespace>
+
+    <!-- The mod id used for deployment defaults to the assembly (== project) name. -->
+    <TimfModId Condition="'$(TimfModId)'==''">$(AssemblyName)</TimfModId>
+  </PropertyGroup>
+
+  <!--
+    Terraria compile reference resolution: explicit property → TIMF_TERRARIA env → a Terraria.exe
+    dropped next to the SDK → common Steam install locations. Whichever resolves first wins.
+  -->
+  <PropertyGroup>
+    <TimfTerrariaRef Condition="'$(TimfTerrariaRef)'=='' and '$(TIMF_TERRARIA)'!=''">$(TIMF_TERRARIA)</TimfTerrariaRef>
+    <TimfTerrariaRef Condition="'$(TimfTerrariaRef)'=='' and Exists('$(TimfSdkDir)Terraria.exe')">$(TimfSdkDir)Terraria.exe</TimfTerrariaRef>
+    <TimfTerrariaRef Condition="'$(TimfTerrariaRef)'=='' and Exists('C:\Program Files (x86)\Steam\steamapps\common\Terraria\Terraria.exe')">C:\Program Files (x86)\Steam\steamapps\common\Terraria\Terraria.exe</TimfTerrariaRef>
+    <TimfTerrariaRef Condition="'$(TimfTerrariaRef)'=='' and Exists('C:\Program Files\Steam\steamapps\common\Terraria\Terraria.exe')">C:\Program Files\Steam\steamapps\common\Terraria\Terraria.exe</TimfTerrariaRef>
+    <TimfTerrariaRef Condition="'$(TimfTerrariaRef)'=='' and Exists('D:\SteamLibrary\steamapps\common\Terraria\Terraria.exe')">D:\SteamLibrary\steamapps\common\Terraria\Terraria.exe</TimfTerrariaRef>
+    <TimfTerrariaRef Condition="'$(TimfTerrariaRef)'=='' and Exists('E:\SteamLibrary\steamapps\common\Terraria\Terraria.exe')">E:\SteamLibrary\steamapps\common\Terraria\Terraria.exe</TimfTerrariaRef>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Framework public API (redistributable). Private=false: never copied into the mod output. -->
+    <Reference Include="TIMF.Abstractions">
+      <HintPath>$(TimfSdkDir)TIMF.Abstractions.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <!-- Harmony is only for AccessTools; the security audit forbids direct patching. -->
+    <Reference Include="0Harmony">
+      <HintPath>$(TimfSdkDir)0Harmony.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Terraria">
+      <HintPath>$(TimfTerrariaRef)</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Microsoft.Xna.Framework">
+      <HintPath>$(TimfXnaDir)\Microsoft.Xna.Framework.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Microsoft.Xna.Framework.Game">
+      <HintPath>$(TimfXnaDir)\Microsoft.Xna.Framework.Game.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Microsoft.Xna.Framework.Graphics">
+      <HintPath>$(TimfXnaDir)\Microsoft.Xna.Framework.Graphics.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <!-- Ship the default config alongside the mod so it lands in the package (see TimfPackage). -->
+  <ItemGroup>
+    <None Include="$(MSBuildProjectDirectory)\$(TimfModId).default.json"
+          CopyToOutputDirectory="PreserveNewest"
+          Condition="Exists('$(MSBuildProjectDirectory)\$(TimfModId).default.json')" />
+  </ItemGroup>
+
+  <!-- Fail early, with an actionable message, when a required reference cannot be located. -->
+  <Target Name="_TimfValidateReferences" BeforeTargets="ResolveAssemblyReferences">
+    <Error Condition="!Exists('$(TimfSdkDir)TIMF.Abstractions.dll')"
+           Text="TIMF Mod SDK is incomplete: TIMF.Abstractions.dll was not found in '$(TimfSdkDir)'. Set the TIMF_SDK environment variable (or the TimfSdkDir property) to the unzipped TIMF Mod SDK folder." />
+    <Error Condition="'$(TimfTerrariaRef)'=='' or !Exists('$(TimfTerrariaRef)')"
+           Text="Terraria compile reference not found. Set the TIMF_TERRARIA environment variable to your own Terraria.exe (a legal copy you own; it is never redistributed), or install Terraria to a standard Steam location." />
+  </Target>
+
+  <!--
+    After a successful build, assemble a drop-in mod folder that mirrors the layout TIMF loads
+    from: <TimfPackageDir>/<ModId>/ containing the dll, Localization/, Content/, any *.png, and
+    the default config. Copy that folder into your TIMF home's Mods/ directory to install.
+    Disable with -p:TimfPackageOnBuild=false.
+  -->
+  <PropertyGroup>
+    <TimfPackageOnBuild Condition="'$(TimfPackageOnBuild)'==''">true</TimfPackageOnBuild>
+    <TimfPackageDir Condition="'$(TimfPackageDir)'==''">$(MSBuildProjectDirectory)\dist\$(TimfModId)</TimfPackageDir>
+  </PropertyGroup>
+  <Target Name="TimfPackage" AfterTargets="Build" Condition="'$(TimfPackageOnBuild)'=='true'">
+    <ItemGroup>
+      <_TimfLoc Include="$(MSBuildProjectDirectory)\Localization\*.json" />
+      <_TimfPng Include="$(MSBuildProjectDirectory)\*.png" />
+      <_TimfContent Include="$(MSBuildProjectDirectory)\Content\**\*" />
+      <_TimfDefaultCfg Include="$(MSBuildProjectDirectory)\$(TimfModId).default.json" />
+    </ItemGroup>
+    <MakeDir Directories="$(TimfPackageDir)" />
+    <Copy SourceFiles="$(TargetPath)" DestinationFiles="$(TimfPackageDir)\$(TimfModId).dll" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="@(_TimfLoc)" DestinationFolder="$(TimfPackageDir)\Localization" SkipUnchangedFiles="true" Condition="'@(_TimfLoc)'!=''" />
+    <Copy SourceFiles="@(_TimfPng)" DestinationFolder="$(TimfPackageDir)" SkipUnchangedFiles="true" Condition="'@(_TimfPng)'!=''" />
+    <Copy SourceFiles="@(_TimfContent)" DestinationFiles="@(_TimfContent->'$(TimfPackageDir)\Content\%(RecursiveDir)%(Filename)%(Extension)')" SkipUnchangedFiles="true" Condition="'@(_TimfContent)'!=''" />
+    <Copy SourceFiles="@(_TimfDefaultCfg)" DestinationFiles="$(TimfPackageDir)\$(TimfModId).default.json" SkipUnchangedFiles="true" Condition="'@(_TimfDefaultCfg)'!=''" />
+    <Message Importance="high" Text="TIMF mod packaged -> $(TimfPackageDir)" />
+  </Target>
+</Project>

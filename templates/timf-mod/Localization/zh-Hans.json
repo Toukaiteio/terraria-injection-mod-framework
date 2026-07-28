@@ -1,0 +1,9 @@
+{
+  "Keybind.Toggle": "MOD_DISPLAY_NAME 开关",
+  "Settings.Enabled": "启用",
+  "Settings.Toggle": "开关按键：{0}",
+  "Settings.Unbound": "（未绑定）",
+  "Chat.On": "MOD_DISPLAY_NAME：已开启",
+  "Chat.Off": "MOD_DISPLAY_NAME：已关闭",
+  "Chat.Ready": "MOD_DISPLAY_NAME 已加载，按 {0} 开关。"
+}

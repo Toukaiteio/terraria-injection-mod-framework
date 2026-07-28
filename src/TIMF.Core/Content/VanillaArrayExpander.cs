@@ -36,7 +36,11 @@ namespace TIMF.Core.Content
         public int ExpandedItemArrayCount { get; private set; }
         public int ExpandedTileArrayCount { get; private set; }
         public int ExpandedWallArrayCount { get; private set; }
-        public int ExpandedArrayCount => ExpandedItemArrayCount + ExpandedTileArrayCount + ExpandedWallArrayCount;
+        public int ExpandedNpcArrayCount { get; private set; }
+        public int ExpandedProjectileArrayCount { get; private set; }
+        public int ExpandedBuffArrayCount { get; private set; }
+        public int ExpandedArrayCount => ExpandedItemArrayCount + ExpandedTileArrayCount + ExpandedWallArrayCount
+                                         + ExpandedNpcArrayCount + ExpandedProjectileArrayCount + ExpandedBuffArrayCount;
 
         /// <summary>
         /// Grow every item-indexed array to <paramref name="newCount"/> and then publish the
@@ -82,6 +86,44 @@ namespace TIMF.Core.Content
                 "Terraria.Main:wallHouse",
                 "Terraria.Main:wallDungeon",
                 "Terraria.GameContent.TextureAssets:Wall",
+            });
+        }
+
+        public bool ExpandNpcArrays(int newCount)
+        {
+            return Expand("Terraria.ID.NPCID", newCount, "npc", new[]
+            {
+                "Terraria.Main:npcFrameCount",
+                "Terraria.GameContent.TextureAssets:Npc",
+                "Terraria.ID.NPCID+Sets:AllNPCs",
+            });
+        }
+
+        public bool ExpandProjectileArrays(int newCount)
+        {
+            return Expand("Terraria.ID.ProjectileID", newCount, "projectile", new[]
+            {
+                "Terraria.Main:projFrames",
+                "Terraria.Main:projHostile",
+                "Terraria.Main:projHook",
+                "Terraria.Main:projPet",
+                "Terraria.GameContent.TextureAssets:Projectile",
+                "Terraria.Lang:_projectileNameCache",
+            });
+        }
+
+        public bool ExpandBuffArrays(int newCount)
+        {
+            return Expand("Terraria.ID.BuffID", newCount, "buff", new[]
+            {
+                "Terraria.Main:debuff",
+                "Terraria.Main:buffNoSave",
+                "Terraria.Main:pvpBuff",
+                "Terraria.Main:persistentBuff",
+                "Terraria.Main:buffNoTimeDisplay",
+                "Terraria.GameContent.TextureAssets:Buff",
+                "Terraria.Lang:_buffNameCache",
+                "Terraria.Lang:_buffDescriptionCache",
             });
         }
 
@@ -159,6 +201,12 @@ namespace TIMF.Core.Content
                     ExpandedTileArrayCount = grown;
                 else if (string.Equals(label, "wall", StringComparison.Ordinal))
                     ExpandedWallArrayCount = grown;
+                else if (string.Equals(label, "npc", StringComparison.Ordinal))
+                    ExpandedNpcArrayCount = grown;
+                else if (string.Equals(label, "projectile", StringComparison.Ordinal))
+                    ExpandedProjectileArrayCount = grown;
+                else if (string.Equals(label, "buff", StringComparison.Ordinal))
+                    ExpandedBuffArrayCount = grown;
                 else
                     ExpandedItemArrayCount = grown;
                 foreach (var kv in byType.OrderByDescending(k => k.Value))

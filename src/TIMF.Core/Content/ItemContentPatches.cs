@@ -50,6 +50,29 @@ namespace TIMF.Core.Content
                 else
                     log.Warn("Content: Player.ApplyEquipFunctional not found — modded accessories will have no effect");
 
+                var updateInventory = AccessTools.Method(typeof(Player), "UpdateInventory");
+                if (updateInventory == null)
+                    updateInventory = AccessTools.Method(typeof(Player), "Update", new[] { typeof(int) });
+                if (updateInventory != null)
+                    harmony.Patch(updateInventory, postfix: new HarmonyMethod(typeof(ItemContentPatches), nameof(UpdateInventoryPostfix)));
+                var holdItem = AccessTools.Method(typeof(Player), "ItemCheck");
+                if (holdItem != null)
+                    harmony.Patch(holdItem, postfix: new HarmonyMethod(typeof(ItemContentPatches), nameof(ItemCheckPostfix)));
+                var canUse = AccessTools.Method(typeof(Player), "ItemCheck_CanUse",
+                    new[] { typeof(Item), typeof(bool) });
+                if (canUse != null)
+                    harmony.Patch(canUse, postfix: new HarmonyMethod(typeof(ItemContentPatches), nameof(AfterCanUseItem)));
+                var startUse = AccessTools.Method(typeof(Player), "ItemCheck_StartActualUse", new[] { typeof(Item) });
+                if (startUse != null)
+                    harmony.Patch(startUse, postfix: new HarmonyMethod(typeof(ItemContentPatches), nameof(AfterStartUseItem)));
+
+                var updatePet = AccessTools.Method(typeof(Player), nameof(Player.UpdatePet), new[] { typeof(int) });
+                if (updatePet != null)
+                    harmony.Patch(updatePet, postfix: new HarmonyMethod(typeof(ItemContentPatches), nameof(AfterUpdatePet)));
+                var updateLightPet = AccessTools.Method(typeof(Player), nameof(Player.UpdatePetLight), new[] { typeof(int) });
+                if (updateLightPet != null)
+                    harmony.Patch(updateLightPet, postfix: new HarmonyMethod(typeof(ItemContentPatches), nameof(AfterUpdateLightPet)));
+
                 log.Info("Content: item patches installed");
             }
             catch (Exception ex)
@@ -126,7 +149,32 @@ namespace TIMF.Core.Content
                 __instance.Prefix(0);
 
                 def.Item = __instance;
-                try { def.SetDefaults(); }
+                try
+                {
+                    def.SetDefaults();
+                    var pet = def as TimfPetItem;
+                    if (pet != null)
+                    {
+                        // These fields are the source of truth used by ItemSlot contexts 19/20,
+                        // quick-equip, tooltips, and Player.UpdatePet/UpdatePetLight. Apply them
+                        // after mod defaults so a subclass cannot accidentally omit them.
+                        __instance.buffType = pet.PetBuffType;
+                        __instance.buffTime = Math.Max(1, pet.PetBuffDuration);
+                        if (pet.PetProjectileType > 0)
+                            __instance.shoot = pet.PetProjectileType;
+                        __instance.consumable = false;
+                    }
+
+                    var grassSeed = def as TimfGrassSeedItem;
+                    if (grassSeed != null)
+                    {
+                        // Seed definitions describe the conversion target; they are not ordinary
+                        // blocks even though Terraria's cursor/use pipeline is entered through
+                        // createTile. Apply this after mod defaults so it cannot drift.
+                        __instance.createTile = grassSeed.GrassTileType;
+                        __instance.consumable = true;
+                    }
+                }
                 finally { def.Item = null; }
             }
             catch (Exception ex)
@@ -205,6 +253,107 @@ namespace TIMF.Core.Content
             catch (Exception ex)
             {
                 _log?.Error("Content: UpdateAccessory failed for " + def.ContentKey, ex);
+            }
+        }
+
+        private static void UpdateInventoryPostfix(Player __instance)
+        {
+            if (__instance == null || __instance.inventory == null) return;
+            for (var i = 0; i < __instance.inventory.Length; i++)
+            {
+                var item = __instance.inventory[i];
+                var def = item == null ? null : Lookup(item.type);
+                if (def == null || !_content.IsSessionAllowed(def)) continue;
+                try { def.Item = item; def.UpdateInventory(__instance); }
+                catch (Exception ex) { _log?.Error("Content: UpdateInventory failed for " + def.ContentKey, ex); }
+                finally { def.Item = null; }
+            }
+        }
+
+        private static void ItemCheckPostfix(Player __instance)
+        {
+            if (__instance == null) return;
+            var item = __instance.HeldItem;
+            var def = item == null ? null : Lookup(item.type);
+            if (def == null || !_content.IsSessionAllowed(def)) return;
+            try { def.Item = item; def.HoldItem(__instance); }
+            catch (Exception ex) { _log?.Error("Content: HoldItem failed for " + def.ContentKey, ex); }
+            finally { def.Item = null; }
+        }
+
+        private static void AfterCanUseItem(Player __instance, Item sItem, ref bool __result)
+        {
+            if (!__result || __instance == null || sItem == null) return;
+            var def = Lookup(sItem.type);
+            if (def == null || !_content.IsSessionAllowed(def)) return;
+            try
+            {
+                def.Item = sItem;
+                __result = def.CanUseItem(__instance);
+            }
+            catch (Exception ex) { _log?.Error("Content: CanUseItem failed for " + def.ContentKey, ex); __result = false; }
+            finally { def.Item = null; }
+        }
+
+        private static void AfterStartUseItem(Player __instance, Item sItem)
+        {
+            if (__instance == null || sItem == null) return;
+            var def = Lookup(sItem.type);
+            if (def == null || !_content.IsSessionAllowed(def)) return;
+            try { def.Item = sItem; def.OnUseItem(__instance); }
+            catch (Exception ex) { _log?.Error("Content: OnUseItem failed for " + def.ContentKey, ex); }
+            finally { def.Item = null; }
+        }
+
+        private static void AfterUpdatePet(Player __instance, int i)
+        {
+            EnsureEquippedPet(__instance, i, 0, TimfPetSlot.Pet);
+        }
+
+        private static void AfterUpdateLightPet(Player __instance, int i)
+        {
+            EnsureEquippedPet(__instance, i, 1, TimfPetSlot.LightPet);
+        }
+
+        /// <summary>
+        /// Vanilla pet buffs normally create their projectile from Player.UpdateBuffs. This
+        /// fallback runs after the original equipment-slot refresh and only creates a declared
+        /// projectile when none exists, so it neither duplicates working vanilla pets nor
+        /// requires a custom buff to smuggle an unmanaged projectile id through vanilla code.
+        /// </summary>
+        private static void EnsureEquippedPet(Player player, int playerIndex, int equipmentSlot,
+            TimfPetSlot expectedSlot)
+        {
+            if (player == null || playerIndex != Main.myPlayer || player.whoAmI != Main.myPlayer
+                || player.dead || player.miscEquips == null
+                || equipmentSlot < 0 || equipmentSlot >= player.miscEquips.Length
+                || player.hideMisc[equipmentSlot])
+                return;
+
+            var item = player.miscEquips[equipmentSlot];
+            var pet = item == null ? null : Lookup(item.type) as TimfPetItem;
+            if (pet == null || pet.PetSlot != expectedSlot || !_content.IsSessionAllowed(pet)
+                || item.stack < 1 || pet.PetBuffType <= 0)
+                return;
+
+            try
+            {
+                if (player.FindBuffIndex(pet.PetBuffType) < 0)
+                    player.AddBuff(pet.PetBuffType, Math.Max(1, pet.PetBuffDuration));
+
+                var projectileType = pet.PetProjectileType;
+                if (projectileType <= 0 || player.ownedProjectileCounts == null
+                    || projectileType >= player.ownedProjectileCounts.Length
+                    || player.ownedProjectileCounts[projectileType] > 0)
+                    return;
+
+                Projectile.NewProjectile(player.GetProjectileSource_Item(item),
+                    player.Center.X, player.Center.Y, 0f, 0f, projectileType,
+                    0, 0f, player.whoAmI, 0f, 0f, 0f, null);
+            }
+            catch (Exception ex)
+            {
+                _log?.Error("Content: equipped pet activation failed for " + pet.ContentKey, ex);
             }
         }
 

@@ -33,6 +33,7 @@ namespace TIMF.Core.Modding
         private readonly AuthorityServices _authorityServices;
         private readonly Content.ContentManager _content;
         private readonly SecurityManager _security;
+        private readonly ModWatchdog _watchdog;
         private IClientServices _clientServices;
         private LanguageService _language;
         private bool _isDedicated;
@@ -63,7 +64,7 @@ namespace TIMF.Core.Modding
 
             foreach (var d in _descriptors)
                 if (ReferenceEquals(d.Instance, participant))
-                    return d.UserEnabled && d.SessionAllowed && d.Loaded;
+                    return d.UserEnabled && d.SessionAllowed && d.Loaded && !d.RuntimeDisabled;
 
             var assembly = participant.GetType().Assembly;
             foreach (var d in _descriptors)
@@ -73,10 +74,53 @@ namespace TIMF.Core.Modding
                 // Helper hook objects cannot be assigned safely when one assembly contains
                 // multiple entry points with different policies, so fail closed unless all
                 // entries in that assembly are executable.
-                if (!d.UserEnabled || !d.SessionAllowed || !d.Loaded)
+                if (!d.UserEnabled || !d.SessionAllowed || !d.Loaded || d.RuntimeDisabled)
                     return false;
             }
             return true;
+        }
+
+        /// <summary>
+        /// Report an unhandled exception thrown by mod code inside a framework-dispatched callback.
+        /// Routes to the <see cref="ModWatchdog"/>, which logs it and disables the mod if it is
+        /// faulting repeatedly. Safe to call from any dispatch site with either the mod instance or
+        /// a mod-provided hook object as <paramref name="participant"/>.
+        /// </summary>
+        internal void ReportModFault(object participant, string phase, Exception ex)
+        {
+            var owners = DescriptorsFor(participant);
+            if (owners.Count == 0)
+            {
+                _log.Error("Callback fault in " + phase + " from an unattributable participant", ex);
+                return;
+            }
+            foreach (var d in owners)
+                _watchdog.ReportFault(d, phase, ex);
+        }
+
+        /// <summary>
+        /// Map a dispatched object back to the mod(s) that own it: the mod instance itself, or any
+        /// hook object declared in a mod's assembly. Mirrors the attribution used by
+        /// <see cref="IsExecutionAllowed"/> and fails closed to all entries sharing an assembly.
+        /// </summary>
+        private List<ModDescriptor> DescriptorsFor(object participant)
+        {
+            var result = new List<ModDescriptor>();
+            if (participant == null)
+                return result;
+
+            foreach (var d in _descriptors)
+                if (ReferenceEquals(d.Instance, participant))
+                {
+                    result.Add(d);
+                    return result;
+                }
+
+            var assembly = participant.GetType().Assembly;
+            foreach (var d in _descriptors)
+                if (d.Assembly == assembly)
+                    result.Add(d);
+            return result;
         }
 
         /// <summary>Registered custom content and the id space it occupies.</summary>
@@ -127,6 +171,8 @@ namespace TIMF.Core.Modding
             _prefixService = new PrefixService();
             _authorityServices = new AuthorityServices(_weatherService, _prefixService);
             _security = new SecurityManager(_log, _configDir);
+            _watchdog = new ModWatchdog(_log,
+                (d, reason) => _security.RecordRuntimeDisabled(d.Id, reason));
             _content = new Content.ContentManager(_log, _configDir, IsModSessionAllowed);
             _services.Register<ILanguageService>(_language);
             _services.Register<IWeatherService>(_weatherService);

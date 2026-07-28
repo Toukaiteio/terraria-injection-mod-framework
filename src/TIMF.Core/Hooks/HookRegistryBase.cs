@@ -14,13 +14,16 @@ namespace TIMF.Core.Hooks
 
         protected readonly ILogger Log;
         private readonly Func<object, bool> _executionAllowed;
+        private readonly Action<object, string, Exception> _faultReporter;
         private readonly List<THook> _hooks = new List<THook>();
         private readonly object _lock = new object();
 
-        protected HookRegistryBase(ILogger log, Func<object, bool> executionAllowed)
+        protected HookRegistryBase(ILogger log, Func<object, bool> executionAllowed,
+            Action<object, string, Exception> faultReporter = null)
         {
             Log = log;
             _executionAllowed = executionAllowed;
+            _faultReporter = faultReporter;
         }
 
         public void Add(THook hook)
@@ -72,6 +75,19 @@ namespace TIMF.Core.Hooks
         protected void Report(string member, Exception ex)
         {
             Log.Error(typeof(THook).Name + "." + member + " failed", ex);
+        }
+
+        /// <summary>
+        /// Report a hook fault attributed to the mod that owns <paramref name="hook"/>. Routes to the
+        /// watchdog when one is wired (which logs and may auto-disable a repeatedly-faulting mod);
+        /// otherwise falls back to a plain log so dispatch is never silent.
+        /// </summary>
+        protected void Report(object hook, string member, Exception ex)
+        {
+            if (_faultReporter != null)
+                _faultReporter(hook, typeof(THook).Name + "." + member, ex);
+            else
+                Report(member, ex);
         }
 
         /// <summary>

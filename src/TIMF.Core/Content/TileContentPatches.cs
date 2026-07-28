@@ -53,6 +53,11 @@ namespace TIMF.Core.Content
                 harmony.Patch(playerPlacement,
                     prefix: new HarmonyMethod(typeof(TileContentPatches), nameof(BeforeTryPlacing)));
 
+                var playerTilePlacement = AccessTools.Method(typeof(Player), "PlaceThing_Tiles");
+                if (playerTilePlacement != null)
+                    harmony.Patch(playerTilePlacement,
+                        prefix: new HarmonyMethod(typeof(TileContentPatches), nameof(BeforePlaceThingTiles)));
+
                 var setAdjTile = AccessTools.Method(typeof(Player), nameof(Player.SetAdjTile),
                     new[] { typeof(int) });
                 if (setAdjTile == null)
@@ -147,6 +152,12 @@ namespace TIMF.Core.Content
                 harmony.Patch(chestDrop,
                     prefix: new HarmonyMethod(typeof(TileContentPatches), nameof(BeforeGetChestDrop)));
 
+                var pickTile = AccessTools.Method(typeof(Player), nameof(Player.PickTile),
+                    new[] { typeof(int), typeof(int), typeof(int) });
+                if (pickTile != null)
+                    harmony.Patch(pickTile,
+                        prefix: new HarmonyMethod(typeof(TileContentPatches), nameof(BeforePickTile)));
+
                 var lightScanner = typeof(Main).Assembly.GetType("Terraria.Graphics.Light.TileLightScanner");
                 var getTileLight = AccessTools.Method(lightScanner, "GetTileLight",
                     new[] { typeof(int), typeof(int), typeof(Vector3).MakeByRefType() });
@@ -157,6 +168,30 @@ namespace TIMF.Core.Content
                 }
                 harmony.Patch(getTileLight,
                     postfix: new HarmonyMethod(typeof(TileContentPatches), nameof(AfterGetTileLight)));
+
+                var tileUse = AccessTools.Method(typeof(Player), "TileInteractionsUse",
+                    new[] { typeof(int), typeof(int) });
+                if (tileUse != null)
+                    harmony.Patch(tileUse, prefix: new HarmonyMethod(typeof(TileContentPatches), nameof(BeforeTileUse)));
+                var hitWire = AccessTools.Method(typeof(Wiring), "HitWireSingle",
+                    new[] { typeof(int), typeof(int) });
+                if (hitWire != null)
+                    harmony.Patch(hitWire, postfix: new HarmonyMethod(typeof(TileContentPatches), nameof(AfterHitWire)));
+                var overgroundUpdate = AccessTools.Method(typeof(WorldGen), "UpdateWorld_OvergroundTile");
+                var undergroundUpdate = AccessTools.Method(typeof(WorldGen), "UpdateWorld_UndergroundTile");
+                if (overgroundUpdate != null)
+                    harmony.Patch(overgroundUpdate, postfix: new HarmonyMethod(typeof(TileContentPatches), nameof(AfterRandomWorldUpdate)));
+                if (undergroundUpdate != null)
+                    harmony.Patch(undergroundUpdate, postfix: new HarmonyMethod(typeof(TileContentPatches), nameof(AfterRandomWorldUpdate)));
+                var floorVisuals = AccessTools.Method(typeof(Player), "FloorVisuals", new[] { typeof(bool) });
+                if (floorVisuals != null)
+                    harmony.Patch(floorVisuals, postfix: new HarmonyMethod(typeof(TileContentPatches), nameof(AfterFloorVisuals)));
+                var itemUpdate = AccessTools.Method(typeof(WorldItem), "UpdateItem", new[] { typeof(int) });
+                if (itemUpdate != null)
+                    harmony.Patch(itemUpdate, postfix: new HarmonyMethod(typeof(TileContentPatches), nameof(AfterWorldItemUpdate)));
+                var npcUpdate = AccessTools.Method(typeof(NPC), nameof(NPC.UpdateNPC), new[] { typeof(int) });
+                if (npcUpdate != null)
+                    harmony.Patch(npcUpdate, postfix: new HarmonyMethod(typeof(TileContentPatches), nameof(AfterNpcUpdate)));
                 log.Info("Content: custom tile placement bridges installed");
             }
             catch (Exception ex)
@@ -207,6 +242,58 @@ namespace TIMF.Core.Content
                 return;
 
             overrideCanPlace = true;
+        }
+
+        /// <summary>
+        /// Vanilla only permits its hard-coded grass ids to target an already-active block.
+        /// A framework grass instead replaces exactly the substrate accepted by CanGrowOn and
+        /// never enters the generic block-swap/pick-damage path.
+        /// </summary>
+        private static bool BeforePlaceThingTiles(Player __instance)
+        {
+            if (__instance == null || __instance.HeldItem == null)
+                return true;
+
+            var item = __instance.HeldItem;
+            var seed = _content?.GetItem(item.type) as TimfGrassSeedItem;
+            if (seed == null)
+                return true;
+
+            var grassType = seed.GrassTileType;
+            var grass = _content.GetTile(grassType) as TimfGrassTile;
+            if (grass == null)
+            {
+                _log?.Warn("Content: grass seed " + seed.ContentKey
+                           + " references a non-grass tile id " + grassType);
+                return false;
+            }
+
+            __instance.cursorItemIconEnabled = true;
+            var x = Player.tileTargetX;
+            var y = Player.tileTargetY;
+            if (x <= 0 || y <= 0 || x >= Main.maxTilesX - 1 || y >= Main.maxTilesY - 1
+                || !_content.IsSessionAllowed(grass)
+                || !__instance.IsInTileInteractionRange(x, y, TileReachCheckSettings.Simple,
+                    item.tileBoost + __instance.blockRange))
+                return false;
+
+            var target = Main.tile[x, y];
+            if (target == null || !target.active() || !grass.CanGrowOn(target.type)
+                || !__instance.controlUseItem || __instance.itemAnimation <= 0
+                || !__instance.ItemTimeIsZero)
+                return false;
+
+            if (!WorldGen.PlaceTile(x, y, grassType, false, false,
+                    __instance.whoAmI, item.placeStyle))
+                return false;
+
+            __instance.ApplyItemTime(item, __instance.tileSpeed);
+            try { SoundEngine.PlaySound(0, x * 16, y * 16, 1, 1f, 0f); }
+            catch { }
+            if (Main.netMode != 0)
+                NetMessage.SendData(17, -1, -1, null, 1,
+                    x, y, grassType, item.placeStyle, 0, 0);
+            return false;
         }
 
         private static bool BeforeSetAdjTile(Player __instance, int tileType)
@@ -338,17 +425,22 @@ namespace TIMF.Core.Content
                 Main.tile[i, j] = tile;
             }
 
-            if (tile.active())
+            var grass = content.GetTile(Type) as TimfGrassTile;
+            var replacingSubstrate = tile.active() && grass != null && grass.CanGrowOn(tile.type);
+            if (tile.active() && !replacingSubstrate)
                 return false;
 
             // Match the first gate in WorldGen.PlaceTile. The player path already performs its
             // normal reach/support checks; this prevents programmatic calls from placing a solid
             // tile through an entity unless the caller explicitly requested a forced placement.
-            if (!forced && Main.tileSolid[Type] && !Collision.EmptyTile(i, j))
+            if (!replacingSubstrate && !forced && Main.tileSolid[Type] && !Collision.EmptyTile(i, j))
                 return false;
 
             try
             {
+                if (replacingSubstrate)
+                    WorldTileSidecar.RecordGrassOrigin(i, j, tile.type);
+
                 // Keep the existing wall and liquid, as vanilla placement does. Only stale block
                 // shape/paint state belonging to a previously removed tile is reset.
                 tile.Clear(TileDataType.Tile | TileDataType.TilePaint | TileDataType.Slope);
@@ -394,8 +486,11 @@ namespace TIMF.Core.Content
             var def = _content?.GetTile(tile.type);
             if (def == null || def.PlacementTemplateTile >= 0)
                 return true;
-            tile.frameX = 0;
-            tile.frameY = 0;
+            if (!def.PreserveFrameData)
+            {
+                tile.frameX = 0;
+                tile.frameY = 0;
+            }
             return false;
         }
 
@@ -543,14 +638,66 @@ namespace TIMF.Core.Content
             if (i < 0 || j < 0 || i >= Main.maxTilesX || j >= Main.maxTilesY)
                 return true;
             var tile = Main.tile[i, j];
-            if (tile == null || !tile.active()
-                || !(_content?.GetTile(tile.type) is TimfContainerTile))
+            if (tile == null || !tile.active())
                 return true;
+            var definition = _content?.GetTile(tile.type);
+            if (definition == null) return true;
+            if (!(definition is TimfContainerTile))
+            {
+                Player player = null;
+                try { player = Main.LocalPlayer; } catch { }
+                if (definition.CanKillTile(i, j, player)) return true;
+                blockDamaged = false; __result = false; return false;
+            }
 
             var left = i - tile.frameX / 18 % 2;
             var top = j - tile.frameY / 18;
             blockDamaged = false;
             __result = Chest.CanDestroyChest(left, top);
+            return false;
+        }
+
+        /// <summary>Implements fragile decoration mining without touching vanilla hit buffers.</summary>
+        private static bool BeforePickTile(Player __instance, int x, int y, int pickPower)
+        {
+            if (__instance == null || x < 0 || y < 0 || x >= Main.maxTilesX || y >= Main.maxTilesY)
+                return true;
+            var tile = Main.tile[x, y];
+            if (tile == null || !tile.active())
+                return true;
+            var definition = _content?.GetTile(tile.type);
+            var grass = definition as TimfGrassTile;
+            if (grass != null)
+            {
+                var substrateType = WorldTileSidecar.TakeGrassOrigin(x, y, grass);
+                if (substrateType < 0)
+                    return true;
+
+                tile.Clear(TileDataType.Tile | TileDataType.TilePaint | TileDataType.Slope);
+                tile.type = (ushort)substrateType;
+                tile.frameX = 0;
+                tile.frameY = 0;
+                tile.active(true);
+                try { WorldGen.TileFrame(x, y, true, false); }
+                catch { }
+                if (Main.netMode == 1)
+                    NetMessage.SendData(17, -1, -1, null, 21,
+                        x, y, substrateType, 0, 0, 0);
+                else if (Main.netMode == 2)
+                    NetMessage.SendTileSquare(-1, x, y, 1);
+                return false;
+            }
+
+            if (definition == null || !definition.BreaksInstantly)
+                return true;
+
+            Player player = __instance;
+            if (!definition.CanKillTile(x, y, player))
+                return false;
+
+            WorldGen.KillTile(x, y, false, false, false);
+            if (Main.netMode == 1)
+                NetMessage.SendData(17, -1, -1, null, 0, x, y, 0f, 0, 0, 0);
             return false;
         }
 
@@ -585,6 +732,124 @@ namespace TIMF.Core.Content
             {
                 _log?.Error("Content: custom tile ModifyLight failed", ex);
             }
+        }
+
+        private static bool BeforeTileUse(Player __instance, int __0, int __1)
+        {
+            var tileX = __0;
+            var tileY = __1;
+            try
+            {
+                if (tileX < 0 || tileY < 0 || tileX >= Main.maxTilesX || tileY >= Main.maxTilesY) return true;
+                var tile = Main.tile[tileX, tileY];
+                var def = tile != null && tile.active() ? _content?.GetTile(tile.type) : null;
+                if (def == null || !_content.IsSessionAllowed(def)) return true;
+                // Until the TIMF content-action message is versioned, a multiplayer client must
+                // not create a local-only tile mutation. Server-originated wire events remain
+                // supported and are synchronized below.
+                if (Main.netMode == 1) return false;
+                return !def.RightClick(tileX, tileY, __instance);
+            }
+            catch (Exception ex) { _log?.Error("Content: RightClick failed", ex); return false; }
+        }
+
+        private static void AfterHitWire(int i, int j)
+        {
+            try
+            {
+                var tile = Main.tile[i, j];
+                var def = tile != null && tile.active() ? _content?.GetTile(tile.type) : null;
+                if (def != null && _content.IsSessionAllowed(def) && Main.netMode != 1)
+                {
+                    def.HitWire(i, j);
+                    if (Main.netMode == 2) NetMessage.SendTileSquare(-1, i, j, 1);
+                }
+            }
+            catch (Exception ex) { _log?.Error("Content: HitWire failed", ex); }
+        }
+
+        private static void AfterRandomWorldUpdate(int i, int j)
+        {
+            try
+            {
+                if (i < 1 || j < 1 || i >= Main.maxTilesX - 1 || j >= Main.maxTilesY - 1) return;
+                var tile = Main.tile[i, j];
+                var def = tile != null && tile.active() ? _content?.GetTile(tile.type) : null;
+                if (def == null || !_content.IsSessionAllowed(def)) return;
+                def.RandomUpdate(i, j);
+                var grass = def as TimfGrassTile;
+                if (grass == null || !grass.CanSpreadAt(i, j)) return;
+                var dirs = new[] { new Point(-1,0), new Point(1,0), new Point(0,-1), new Point(0,1) };
+                var attempts = Math.Max(0, Math.Min(4, grass.SpreadAttempts));
+                for (var n = 0; n < attempts; n++)
+                {
+                    var p = dirs[Main.rand.Next(dirs.Length)];
+                    var target = Main.tile[i + p.X, j + p.Y];
+                    if (target == null || !target.active() || !grass.CanGrowOn(target.type)) continue;
+                    WorldTileSidecar.RecordGrassOrigin(i + p.X, j + p.Y, target.type);
+                    target.type = (ushort)grass.Type; target.frameX = 0; target.frameY = 0;
+                    WorldGen.SquareTileFrame(i + p.X, j + p.Y, true);
+                    if (Main.netMode == 2) NetMessage.SendTileSquare(-1, i + p.X, j + p.Y, 1);
+                }
+            }
+            catch (Exception ex) { _log?.Error("Content: RandomUpdate/grass spread failed", ex); }
+        }
+
+        private static void AfterFloorVisuals(Player __instance)
+        {
+            try
+            {
+                if (__instance == null) return;
+                var tx = (int)(__instance.Center.X / 16f);
+                var ty = (int)((__instance.position.Y + __instance.height + 2f) / 16f);
+                for (var x = tx - 1; x <= tx + 1; x++)
+                {
+                    if (x < 0 || ty < 0 || x >= Main.maxTilesX || ty >= Main.maxTilesY) continue;
+                    var tile = Main.tile[x, ty];
+                    var def = tile != null && tile.active() ? _content?.GetTile(tile.type) : null;
+                    if (def == null || !_content.IsSessionAllowed(def)) continue;
+                    def.NearbyEffects(x, ty, __instance, x == tx);
+                    if (x == tx && Math.Abs(def.ConveyorVelocity) > 0.001f && __instance.velocity.Y == 0f)
+                        __instance.velocity.X = Math.Max(-10f, Math.Min(10f, __instance.velocity.X + def.ConveyorVelocity));
+                }
+            }
+            catch (Exception ex) { _log?.Error("Content: NearbyEffects/conveyor failed", ex); }
+        }
+
+        private static void AfterWorldItemUpdate(int i)
+        {
+            try
+            {
+                if (i < 0 || i >= Main.item.Length) return;
+                var item = Main.item[i];
+                if (item == null || !item.active || item.velocity.Y != 0f) return;
+                ApplyConveyor(item, item.velocity);
+            }
+            catch (Exception ex) { _log?.Error("Content: item conveyor update failed", ex); }
+        }
+
+        private static void AfterNpcUpdate(NPC __instance)
+        {
+            try
+            {
+                if (__instance == null || !__instance.active || __instance.noTileCollide
+                    || __instance.velocity.Y != 0f) return;
+                ApplyConveyor(__instance, __instance.velocity);
+            }
+            catch (Exception ex) { _log?.Error("Content: NPC conveyor update failed", ex); }
+        }
+
+        private static void ApplyConveyor(Entity entity, Vector2 velocity)
+        {
+            var x = (int)(entity.Center.X / 16f);
+            var y = (int)((entity.position.Y + entity.height + 2f) / 16f);
+            if (x < 0 || y < 0 || x >= Main.maxTilesX || y >= Main.maxTilesY) return;
+            var tile = Main.tile[x, y];
+            var def = tile != null && tile.active() ? _content?.GetTile(tile.type) : null;
+            if (def == null || !_content.IsSessionAllowed(def)
+                || Math.Abs(def.ConveyorVelocity) <= 0.001f) return;
+            velocity.X = Math.Max(-10f, Math.Min(10f, velocity.X + def.ConveyorVelocity));
+            entity.velocity = velocity;
         }
 
         private static bool HasPlacementSupport(int x, int y)

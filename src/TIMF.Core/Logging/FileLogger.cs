@@ -28,7 +28,10 @@ namespace TIMF.Core.Logging
 
         public void Error(string message, Exception exception)
         {
-            Write("ERROR", message + Environment.NewLine + exception);
+            // Exception messages can echo absolute filenames. Keep diagnostics useful without
+            // copying local machine paths into framework logs.
+            var detail = exception == null ? "Unknown error" : exception.GetType().Name;
+            Write("ERROR", message + " (" + detail + ")");
         }
 
         private void Write(string level, string message)

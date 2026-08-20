@@ -116,32 +116,6 @@ static std::wstring GetModuleDirectory(HMODULE mod)
     return s.substr(0, pos);
 }
 
-static std::wstring ReadTextFile(const std::wstring& path)
-{
-    HANDLE h = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ, NULL,
-                           OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
-    if (h == INVALID_HANDLE_VALUE)
-        return L"";
-    DWORD size = GetFileSize(h, NULL);
-    if (size == 0 || size > 32 * 1024)
-    {
-        CloseHandle(h);
-        return L"";
-    }
-    std::string data(size, '\0');
-    DWORD read = 0;
-    ReadFile(h, &data[0], size, &read, NULL);
-    CloseHandle(h);
-    int wlen = MultiByteToWideChar(CP_UTF8, 0, data.data(), (int)read, NULL, 0);
-    std::wstring w(static_cast<size_t>(wlen), L'\0');
-    MultiByteToWideChar(CP_UTF8, 0, data.data(), (int)read, &w[0], wlen);
-    while (!w.empty() && (w.back() == L'\r' || w.back() == L'\n' || w.back() == L' ' || w.back() == L'\t'))
-        w.pop_back();
-    if (!w.empty() && w[0] == 0xFEFF)
-        w.erase(0, 1);
-    return w;
-}
-
 static std::wstring ResolveHome(HMODULE self)
 {
     wchar_t env[32768];
@@ -149,18 +123,7 @@ static std::wstring ResolveHome(HMODULE self)
     if (n > 0 && n < 32768)
         return std::wstring(env);
 
-    std::wstring dir = GetModuleDirectory(self);
-    std::wstring home = ReadTextFile(dir + L"\\TIMF_HOME.txt");
-    if (!home.empty())
-        return home;
-
-    wchar_t cwd[MAX_PATH];
-    GetCurrentDirectoryW(MAX_PATH, cwd);
-    home = ReadTextFile(std::wstring(cwd) + L"\\TIMF_HOME.txt");
-    if (!home.empty())
-        return home;
-
-    return dir;
+    return GetModuleDirectory(self);
 }
 
 static bool WaitForClrModule(DWORD timeoutMs)
@@ -470,7 +433,7 @@ static HRESULT ExecuteViaCorHost(IUnknown* corHost, const std::wstring& coreDll,
 
 static HRESULT HostClrAndStart(const std::wstring& home)
 {
-    WriteLog(L"Resolve home: " + home);
+    WriteLog(L"Resolve TIMF home");
 
     if (!WaitForClrModule(120000))
     {
@@ -481,7 +444,7 @@ static HRESULT HostClrAndStart(const std::wstring& home)
     std::wstring coreDll = home + L"\\TIMF.Core.dll";
     if (GetFileAttributesW(coreDll.c_str()) == INVALID_FILE_ATTRIBUTES)
     {
-        WriteLog(L"TIMF.Core.dll missing at " + coreDll);
+        WriteLog(L"TIMF.Core.dll missing next to bootstrap");
         return E_FAIL;
     }
 

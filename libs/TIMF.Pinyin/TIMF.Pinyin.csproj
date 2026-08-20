@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net48</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <PlatformTarget>x86</PlatformTarget>
+    <AssemblyName>TIMF.Pinyin</AssemblyName>
+    <RootNamespace>TIMF.Pinyin</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\TIMF.Abstractions\TIMF.Abstractions.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- The shared pinyin dataset (~40k CJK). Ships once with this library mod. -->
+    <PackageReference Include="NPinyin" Version="0.2.6321.26573" />
+  </ItemGroup>
+  <ItemGroup>
+    <Reference Include="Microsoft.Xna.Framework">
+      <HintPath>$(TimfXnaDir)\Microsoft.Xna.Framework.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Microsoft.Xna.Framework.Game">
+      <HintPath>$(TimfXnaDir)\Microsoft.Xna.Framework.Game.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+</Project>

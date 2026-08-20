@@ -86,7 +86,7 @@ namespace TIMF.Core.Content
                         }
                         else
                         {
-                            _log.Warn("Content: texture not found for " + def.ContentKey + " at " + path);
+                            _log.Warn("Content: texture not found for " + def.ContentKey + " (" + Path.GetFileName(path) + ")");
                         }
                     }
                 }
@@ -134,7 +134,7 @@ namespace TIMF.Core.Content
                         }
                         else
                         {
-                            _log.Warn("Content: tile texture not found for " + def.ContentKey + " at " + path);
+                            _log.Warn("Content: tile texture not found for " + def.ContentKey + " (" + Path.GetFileName(path) + ")");
                         }
                     }
                 }
@@ -176,7 +176,7 @@ namespace TIMF.Core.Content
                             using (var fs = File.OpenRead(path))
                                 texture = Texture2D.FromStream(device, fs);
                         }
-                        else _log.Warn("Content: wall texture not found for " + def.ContentKey + " at " + path);
+                        else _log.Warn("Content: wall texture not found for " + def.ContentKey + " (" + Path.GetFileName(path) + ")");
                     }
                 }
                 catch (Exception ex) { _log.Error("Content: failed to load wall texture for " + def.ContentKey, ex); }
@@ -207,7 +207,7 @@ namespace TIMF.Core.Content
                         var path = Path.Combine(dir, def.Texture.Replace('/', Path.DirectorySeparatorChar));
                         if (!Path.HasExtension(path)) path += ".png";
                         if (File.Exists(path)) using (var fs = File.OpenRead(path)) texture = Texture2D.FromStream(device, fs);
-                        else _log.Warn("Content: NPC texture not found for " + def.ContentKey + " at " + path);
+                        else _log.Warn("Content: NPC texture not found for " + def.ContentKey + " (" + Path.GetFileName(path) + ")");
                     }
                 }
                 catch (Exception ex) { _log.Error("Content: failed to load NPC texture for " + def.ContentKey, ex); }
@@ -265,7 +265,7 @@ namespace TIMF.Core.Content
                 if (string.IsNullOrEmpty(dir)) return null;
                 var path = Path.Combine(dir, relative.Replace('/', Path.DirectorySeparatorChar));
                 if (!Path.HasExtension(path)) path += ".png";
-                if (!File.Exists(path)) { _log.Warn("Content: " + label + " texture not found for " + contentKey + " at " + path); return null; }
+                if (!File.Exists(path)) { _log.Warn("Content: " + label + " texture not found for " + contentKey + " (" + Path.GetFileName(path) + ")"); return null; }
                 using (var fs = File.OpenRead(path)) return Texture2D.FromStream(device, fs);
             }
             catch (Exception ex) { _log.Error("Content: failed to load " + label + " texture for " + contentKey, ex); return null; }
@@ -514,7 +514,7 @@ namespace TIMF.Core.Content
             catch (Exception ex)
             {
                 _log.Warn("Content: could not read TextureAssets." + _fieldName
-                          + "[" + id + "].Value: " + ex.Message);
+                        + "[" + id + "].Value: " + ex.GetType().Name);
                 return null;
             }
         }

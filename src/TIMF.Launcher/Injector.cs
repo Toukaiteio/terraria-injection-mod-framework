@@ -13,7 +13,7 @@ namespace TIMF.Launcher
         public static bool Inject(IntPtr processHandle, string dllPath)
         {
             if (!File.Exists(dllPath))
-                throw new FileNotFoundException("Bootstrap DLL not found", dllPath);
+                throw new FileNotFoundException("Bootstrap DLL not found.");
 
             var fullPath = Path.GetFullPath(dllPath);
             var preflight = PreflightBootstrap(fullPath);
@@ -97,7 +97,7 @@ namespace TIMF.Launcher
             {
                 var fi = new FileInfo(fullPath);
                 if (!fi.Exists)
-                    return "TIMF.Bootstrap.dll not found: " + fullPath;
+                    return "TIMF.Bootstrap.dll was not found next to the launcher.";
                 if (fi.Length < 1024)
                     return "TIMF.Bootstrap.dll is suspiciously small (" + fi.Length + " bytes). Re-download/rebuild the package.";
 
@@ -116,21 +116,21 @@ namespace TIMF.Launcher
                     return "TIMF.Bootstrap.dll is not a valid 32-bit PE image: "
                            + PeMachine.Describe(kind, machine, detail)
                            + Environment.NewLine
-                           + "Path: " + fullPath;
+                           + "The bootstrap file next to the launcher is invalid.";
                 }
 
                 // LoadLibraryW needs an absolute path; very long paths can fail without \\?\ support.
                 if (fullPath.Length >= 240)
                 {
                     return "Bootstrap path is very long (" + fullPath.Length + " chars). "
-                           + "Move TIMF to a shorter path (e.g. C:\\TIMF) and retry.";
+                           + "Move TIMF to a shorter installation directory and retry.";
                 }
 
                 return null;
             }
             catch (Exception ex)
             {
-                return "Failed to inspect TIMF.Bootstrap.dll: " + ex.Message;
+                return "Failed to inspect TIMF.Bootstrap.dll: " + ex.GetType().Name;
             }
         }
 
@@ -138,7 +138,7 @@ namespace TIMF.Launcher
         {
             var sb = new StringBuilder();
             sb.AppendLine("LoadLibraryW failed inside Terraria (module handle = 0).");
-            sb.AppendLine("DLL: " + fullPath);
+            sb.AppendLine("DLL: TIMF.Bootstrap.dll");
             sb.AppendLine();
             sb.AppendLine("Most common causes (check in order):");
             sb.AppendLine("  1) Bootstrap depends on a MinGW DLL not visible to Terraria (e.g. libwinpthread-1.dll).");
@@ -149,7 +149,7 @@ namespace TIMF.Launcher
             sb.AppendLine("  3) Package is incomplete or Bootstrap is the wrong architecture.");
             sb.AppendLine("     → TIMF.Bootstrap.dll must be 32-bit (PE32). Re-download the official win-x86 zip.");
             sb.AppendLine("  4) Folder is under Downloads / Desktop and is being sandboxed.");
-            sb.AppendLine("     → Move the whole TIMF folder to a simple path like C:\\TIMF and run from there.");
+            sb.AppendLine("     → Move the whole TIMF folder to a short, writable installation directory and run from there.");
             sb.AppendLine("  5) Controlled Folder Access / ransomware protection blocking remote LoadLibrary.");
             sb.AppendLine();
             sb.AppendLine("Also check: %TEMP%\\timf-bootstrap.log (only written if LoadLibrary succeeded).");

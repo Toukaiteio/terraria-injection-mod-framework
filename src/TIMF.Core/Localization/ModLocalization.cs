@@ -120,13 +120,13 @@ namespace TIMF.Core.Localization
                     }
                     catch (Exception ex)
                     {
-                        _log?.Warn("Failed to load localization " + Path.GetFileName(file) + ": " + ex.Message);
+            _log?.Warn("Failed to load localization " + Path.GetFileName(file) + ": " + ex.GetType().Name);
                     }
                 }
             }
             catch (Exception ex)
             {
-                _log?.Warn("Localization scan failed: " + ex.Message);
+            _log?.Warn("Localization scan failed: " + ex.GetType().Name);
             }
         }
 

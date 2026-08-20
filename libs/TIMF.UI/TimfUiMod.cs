@@ -8,7 +8,7 @@ namespace TIMF.UI
     /// Id: TIMF.UI — depend with [TimfDependsOn("TIMF.UI")].
     /// Resolve via <see cref="IClientServices.Ui"/> or <see cref="IModContext.Services"/>.
     /// </summary>
-    [TimfMod(Id = "TIMF.UI", Side = TimfSide.Client)]
+    [TimfMod(Id = "TIMF.UI", Side = TimfSide.Client, LoadBeforeWorld = true)]
     public sealed class TimfUiMod : IClientMod
     {
         private IModContext _ctx;

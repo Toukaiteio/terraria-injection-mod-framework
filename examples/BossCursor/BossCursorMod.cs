@@ -1,10 +1,12 @@
 using System;
 using System.IO;
+using System.Reflection;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
 using Terraria;
 using TIMF.Abstractions;
+using TIMF.Abstractions.Security;
 
 namespace BossCursor
 {
@@ -13,9 +15,9 @@ namespace BossCursor
     /// Behavior inspired by the classic Boss Cursor client mod (not a source port).
     /// </summary>
     [TimfMod(Id = "BossCursor", Side = TimfSide.Client)]
-    public sealed class BossCursorMod : IClientMod, IModSettings
+    public sealed class BossCursorMod : IClientMod, IModSettings, IModFeatureToggle
     {
-        // NPCID.LunarTower* (1.4.5.6)
+        // NPCID.LunarTower* (1.4.5.7)
         private static readonly int[] PillarTypes = { 422, 493, 507, 517 };
         private const string ToggleId = "BossCursor.Toggle";
 
@@ -28,6 +30,13 @@ namespace BossCursor
         private bool _textureLoadAttempted;
         private bool _announcePending;
 
+        // Boss-head icons: ReLogic Asset<T> differs at compile/runtime, so reach it via the
+        // reflection broker (same approach WorldMapIcons uses for TextureAssets).
+        private ITerrariaReflection _reflection;
+        private Array _bossHeadAssets;        // TextureAssets.NpcHeadBoss (Asset<Texture2D>[])
+        private PropertyInfo _assetValueProp; // Asset<Texture2D>.Value
+        private bool _headResolveAttempted;
+
         public string Name => "BossCursor";
         public string Version => "1.0.0";
 
@@ -36,6 +45,9 @@ namespace BossCursor
             _ctx = context;
             _config = BossCursorConfig.LoadOrCreate(context.Storage, "BossCursor.json");
             _enabled = _config.Enabled;
+
+            try { _reflection = context.Services.GetService<ITerrariaReflection>(); }
+            catch { _reflection = null; }
 
             var defaultKey = ParseKey(_config.ToggleKey, Keys.Insert);
             _keybinds = context.Client != null ? context.Client.Keybinds : null;
@@ -79,6 +91,10 @@ namespace BossCursor
             dirty |= ui.Checkbox(L.Get("Settings.HideOnScreen", "Hide when on screen"), ref _config.HideOnScreen);
             dirty |= ui.Checkbox(L.Get("Settings.SkipPillars", "Skip pillars"), ref _config.BlackListPillars);
 
+            dirty |= ui.Checkbox(L.Get("Settings.ShowHead", "Show boss head"), ref _config.ShowHead);
+            if (_config.ShowHead)
+                dirty |= ui.SliderFloat(L.Get("Settings.HeadSize", "Head size"), ref _config.HeadSize, 0.3f, 3f);
+
             ui.Spacing();
             var bind = _toggle != null && !string.IsNullOrEmpty(_toggle.CurrentBindingDisplay)
                 ? _toggle.CurrentBindingDisplay
@@ -87,6 +103,20 @@ namespace BossCursor
 
             if (dirty)
                 SaveConfig();
+        }
+
+        /// <summary>In-world feature switch for hubs — mod enablement itself is menu-only.</summary>
+        public bool FeatureEnabled
+        {
+            get { return _config != null && _config.Enabled; }
+            set
+            {
+                if (_config == null || _config.Enabled == value)
+                    return;
+                _enabled = value;
+                _config.Enabled = value;
+                SaveConfig();
+            }
         }
 
         private void SaveConfig()
@@ -224,6 +254,107 @@ namespace BossCursor
                 scale,
                 SpriteEffects.None,
                 0f);
+
+            if (_config.ShowHead)
+                DrawBossHead(sb, npc, playerScreen, dir, ring, t);
+        }
+
+        /// <summary>
+        /// Draws the boss's map-head icon just outside the arrow, shrinking with distance
+        /// (same <paramref name="t"/> the arrow uses) and scaled by <c>HeadSize</c>.
+        /// </summary>
+        private void DrawBossHead(SpriteBatch sb, NPC npc, Vector2 playerScreen, Vector2 dir, float ring, float t)
+        {
+            int headIdx;
+            try { headIdx = npc.GetBossHeadTextureIndex(); }
+            catch { return; }
+            if (headIdx < 0)
+                return;
+
+            var headTex = BossHeadTexture(headIdx);
+            if (headTex == null)
+                return;
+
+            // Closer → bigger head (readable), matching the arrow's distance cue.
+            var headScale = MathHelper.Lerp(0.95f, 0.4f, t) * Math.Max(0.1f, _config.HeadSize);
+            var alpha = MathHelper.Lerp(1f, 0.5f, t);
+
+            // Seat the head just beyond the arrow so the two read as one marker.
+            var headHalf = Math.Max(headTex.Width, headTex.Height) * 0.5f * headScale;
+            var headPos = playerScreen + dir * (ring + 14f + headHalf);
+            var origin = new Vector2(headTex.Width / 2f, headTex.Height / 2f);
+
+            sb.Draw(
+                headTex,
+                headPos,
+                null,
+                Color.White * alpha,
+                0f,
+                origin,
+                headScale,
+                SpriteEffects.None,
+                0f);
+        }
+
+        /// <summary>Resolves a boss-head <c>Texture2D</c> by index via the reflection broker.</summary>
+        private Texture2D BossHeadTexture(int index)
+        {
+            if (!ResolveHeads() || _bossHeadAssets == null)
+                return null;
+            if (index < 0 || index >= _bossHeadAssets.Length)
+                return null;
+            try
+            {
+                var asset = _bossHeadAssets.GetValue(index);
+                if (asset == null || _assetValueProp == null)
+                    return null;
+                return _reflection.GetPropertyValue(_assetValueProp, asset, null) as Texture2D;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private bool ResolveHeads()
+        {
+            if (_headResolveAttempted)
+                return _bossHeadAssets != null;
+            _headResolveAttempted = true;
+
+            if (_reflection == null)
+            {
+                _ctx.Log.Warn("BossCursor: ITerrariaReflection unavailable — boss heads disabled");
+                return false;
+            }
+
+            try
+            {
+                var asm = typeof(Main).Assembly;
+                var texAssets = asm.GetType("Terraria.GameContent.TextureAssets");
+                var field = texAssets != null
+                    ? texAssets.GetField("NpcHeadBoss", BindingFlags.Public | BindingFlags.Static)
+                    : null;
+                if (field != null)
+                    _bossHeadAssets = _reflection.GetFieldValue(field, null) as Array;
+
+                if (_bossHeadAssets != null && _bossHeadAssets.Length > 0)
+                {
+                    var sample = _bossHeadAssets.GetValue(0);
+                    if (sample != null)
+                        _assetValueProp = sample.GetType().GetProperty("Value", BindingFlags.Public | BindingFlags.Instance);
+                }
+
+                if (_bossHeadAssets == null || _assetValueProp == null)
+                    _ctx.Log.Warn("BossCursor: NpcHeadBoss assets not resolved — boss heads disabled");
+
+                return _bossHeadAssets != null && _assetValueProp != null;
+            }
+            catch (Exception ex)
+            {
+                _ctx.Log.Error("BossCursor boss-head reflection failed", ex);
+                return false;
+            }
         }
 
         /// <summary>

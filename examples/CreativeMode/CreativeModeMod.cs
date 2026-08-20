@@ -6,6 +6,7 @@ using Microsoft.Xna.Framework.Input;
 using Terraria;
 using TIMF.Abstractions;
 using TIMF.Abstractions.Security;
+using TIMF.Pinyin;
 
 namespace CreativeMode
 {
@@ -15,6 +16,7 @@ namespace CreativeMode
     /// </summary>
     [TimfMod(Id = "CreativeMode", Side = TimfSide.Client)]
     [TimfDependsOn("TIMF.UI", MinVersion = "1.0.0")]
+    [TimfDependsOn("TIMF.Pinyin", MinVersion = "1.0.0")]
     public sealed class CreativeModeMod : IClientMod, IModSettings
     {
         // Classic coin item types.
@@ -45,7 +47,11 @@ namespace CreativeMode
         public void Load(IModContext context)
         {
             _ctx = context;
-            _db = new ItemDatabase(context.Log, context.Services.GetService<ITerrariaReflection>());
+            IPinyinService pinyin;
+            context.Services.TryGetService(out pinyin);
+            if (pinyin == null)
+                context.Log.Warn("IPinyinService unavailable — TIMF.Pinyin missing? Search falls back to name/id only");
+            _db = new ItemDatabase(context.Log, context.Services.GetService<ITerrariaReflection>(), pinyin);
 
             _ui = context.Client != null ? context.Client.Ui : null;
             if (_ui == null)
@@ -105,8 +111,9 @@ namespace CreativeMode
             }
 
             // --- Search row ---
+            // InputText fills the row to the window edge; Clear on SameLine would land outside
+            // the window (invisible, stray hitbox) — keep it on its own line.
             _ui.InputText("Search (name / id / pinyin)", ref _search, 48);
-            _ui.SameLine();
             if (_ui.Button("Clear"))
                 _search = "";
 
@@ -298,7 +305,7 @@ namespace CreativeMode
 
         public void BuildSettingsUI(IImmediateModeUi ui)
         {
-
+            ui.Text(_ctx.L.Get("Settings.Title", "Item browser with search + give."));
             ui.Text(_ctx.L.Format("Settings.Toggle", _toggle != null && !string.IsNullOrEmpty(_toggle.CurrentBindingDisplay) ? _toggle.CurrentBindingDisplay : _ctx.L.Get("Settings.Unbound", "(unbound)")));
             ui.Spacing();
             if (ui.Button(_windowOpen ? "Close browser" : "Open browser"))

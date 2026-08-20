@@ -24,6 +24,7 @@ namespace TIMF.Core.Modding
         private readonly ServiceRegistry _services = new ServiceRegistry();
         private readonly List<IMod> _mods = new List<IMod>();
         private readonly List<ModDescriptor> _descriptors = new List<ModDescriptor>();
+        private List<ModDescriptor> _loadOrder = new List<ModDescriptor>();
         private readonly ServerModCatalog _serverCatalog = new ServerModCatalog();
         private readonly HashSet<string> _activeServerIds =
             new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -344,6 +345,9 @@ namespace TIMF.Core.Modding
                 order = _descriptors.Where(d => d.FailReason == null).ToList();
             }
 
+            _loadOrder = order;
+            PromotePreWorldDependencies(order);
+
             _log.Info("Discovery order (" + order.Count + "): " + string.Join(" -> ", order.Select(FormatSide)));
 
             foreach (var d in order)
@@ -362,6 +366,12 @@ namespace TIMF.Core.Modding
                 {
                     _log.Info("Deferred authority mod: " + d.Id + " v" + d.Version
                               + " [" + d.Side + "/" + d.NetProfile + "]");
+                    continue;
+                }
+
+                if (!d.PreWorld)
+                {
+                    _log.Info("World-staged mod (loads on world enter): " + d.Id + " [" + d.Side + "]");
                     continue;
                 }
 
@@ -509,6 +519,87 @@ namespace TIMF.Core.Modding
             ActivateServerMods(ids);
         }
 
+        /// <summary>
+        /// A pre-world mod must be able to resolve its hard dependencies (library services etc.)
+        /// inside Load, so the whole hard-dependency closure of every pre-world mod is promoted
+        /// to pre-world as well. Runs to a fixpoint over the topo-sorted set.
+        /// </summary>
+        private void PromotePreWorldDependencies(List<ModDescriptor> order)
+        {
+            bool changed;
+            do
+            {
+                changed = false;
+                foreach (var d in order)
+                {
+                    if (!d.PreWorld || d.FailReason != null)
+                        continue;
+                    foreach (var dep in d.Deps)
+                    {
+                        if (dep.Soft)
+                            continue;
+                        var target = FindDescriptor(dep.Id);
+                        if (target == null || target.PreWorld)
+                            continue;
+                        target.PreWorld = true;
+                        changed = true;
+                        _log.Info("Promoted to pre-world load: " + target.Id
+                                  + " (hard dependency of pre-world mod " + d.Id + ")");
+                    }
+                }
+            } while (changed);
+        }
+
+        /// <summary>
+        /// Load every enabled world-staged mod for the session that just began. Runs on the main
+        /// thread at the session edge (world enter / handshake completion), so the one-time load
+        /// cost lands next to the loading screen instead of mid-gameplay. Failures are logged and
+        /// retried on the next session rather than poisoning the descriptor.
+        /// </summary>
+        public void ActivateWorldMods()
+        {
+            foreach (var d in _loadOrder)
+            {
+                if (d.FailReason != null || d.Loaded || d.PreWorld
+                    || d.IsDeferredServerAuthority
+                    || !d.UserEnabled || !d.SessionAllowed || d.RuntimeDisabled)
+                    continue;
+                if (_isDedicated && !TimfSides.IsAuthorityCapable(d.Side))
+                    continue;
+
+                try
+                {
+                    LoadOne(d);
+                    _log.Info("World-staged mod loaded: " + d.Id);
+                }
+                catch (Exception ex)
+                {
+                    _log.Error("World-staged load failed for " + d.Id + " (will retry next session)", ex);
+                }
+            }
+        }
+
+        /// <summary>Unload every world-staged mod on returning to the main menu (reverse order).</summary>
+        public void DeactivateWorldMods()
+        {
+            for (var i = _loadOrder.Count - 1; i >= 0; i--)
+            {
+                var d = _loadOrder[i];
+                if (d.PreWorld || !d.Loaded || d.Instance == null)
+                    continue;
+
+                try
+                {
+                    UnloadOne(d);
+                    _log.Info("World-staged mod unloaded: " + d.Id);
+                }
+                catch (Exception ex)
+                {
+                    _log.Error("World-staged unload failed for " + d.Id, ex);
+                }
+            }
+        }
+
         public void DeactivateAllServerMods()
         {
             if (_activeServerIds.Count == 0)
@@ -601,6 +692,14 @@ namespace TIMF.Core.Modding
                 }
             } while (changed);
 
+            // Two-stage lifecycle: world-staged client mods follow the session edge here, so every
+            // policy recalculation (world enter, handshake completion) tops up missing loads and
+            // returning to the menu tears the world-staged set down again.
+            if (kind == TimfSessionKind.Menu)
+                DeactivateWorldMods();
+            else
+                ActivateWorldMods();
+
             RebuildRegistry();
             var blocked = _descriptors.Count(d => d.UserEnabled && !d.SessionAllowed);
             _log.Info("Session mod policy: kind=" + kind + ", authority allow-list="
@@ -641,38 +740,92 @@ namespace TIMF.Core.Modding
                 return true;
             }
 
-            if (_sessionKind != TimfSessionKind.Menu && d.ParticipatesInServer)
+            if (_sessionKind != TimfSessionKind.Menu)
             {
                 message = d.Id + " cannot be enabled or disabled while a world/session is active. "
-                          + "Return to the main menu first.";
+                          + "Use the mod's feature toggle in-world, or return to the main menu.";
                 _log.Warn("Enablement change rejected: " + message);
                 return false;
             }
 
             if (!enabled)
             {
-                // Disabling: tear down server path then unload if loaded.
+                // Dependency inference: mods that hard-depend on this one would keep running against
+                // a now-missing dependency, so cascade-disable the transitive dependents as well.
+                var dependents = TransitiveEnabledDependents(d.Id); // farthest dependents first
+                var disableSet = new List<ModDescriptor>(dependents) { d };
+
+                foreach (var target in disableSet)
+                {
+                    string why;
+                    if (!CanToggleNow(target, out why))
+                    {
+                        message = ReferenceEquals(target, d)
+                            ? d.Id + " " + why
+                            : "Cannot disable " + d.Id + ": dependent mod " + target.Id + " " + why;
+                        _log.Warn("Enablement change rejected: " + message);
+                        return false;
+                    }
+                }
+
+                // Disabling: tear down server path then unload if loaded (dependents before the dependency).
                 try
                 {
-                    if (d.ServerActive)
-                        DeactivateServerPath(d);
-                    if (d.Loaded && d.Instance != null)
-                        UnloadOne(d);
+                    foreach (var target in disableSet)
+                        TeardownForDisable(target);
                 }
                 catch (Exception ex)
                 {
                     _log.Error("Disable failed for " + d.Id, ex);
                     message = "Failed to disable " + d.Id + ": " + ex.Message;
+                    _serverCatalog.Rebuild(_descriptors.Where(x => x.UserEnabled));
+                    ReapplySessionPolicy();
                     return false;
                 }
 
-                d.UserEnabled = false;
-                _enablement.SetEnabled(d.Id, false);
                 _serverCatalog.Rebuild(_descriptors.Where(x => x.UserEnabled));
                 ReapplySessionPolicy();
-                message = d.Id + " disabled. It will stay off until re-enabled (restart not required for client/server path).";
+                message = d.Id + " disabled.";
+                if (dependents.Count > 0)
+                    message += " Also disabled " + dependents.Count + " dependent mod(s) that require it: "
+                               + string.Join(", ", dependents.Select(x => x.Id)) + ".";
+                message += " Stays off until re-enabled (restart not required for client/server path).";
                 _log.Info(message);
                 return true;
+            }
+
+            // Dependency inference: resolve the forward hard-dependency closure first so the mod
+            // never loads against a disabled / missing / too-old dependency. Missing, failed, or
+            // version-incompatible dependencies block the enable; disabled ones are turned on first.
+            var enablePlan = new List<ModDescriptor>();
+            string depBlock;
+            if (!BuildEnablePlan(d, enablePlan, new HashSet<string>(StringComparer.OrdinalIgnoreCase), out depBlock))
+            {
+                message = "Cannot enable " + d.Id + ": " + depBlock;
+                _log.Warn("Enablement change rejected: " + message);
+                return false;
+            }
+            foreach (var pending in enablePlan)
+            {
+                string why;
+                if (!CanToggleNow(pending, out why))
+                {
+                    message = "Cannot enable " + d.Id + ": required dependency " + pending.Id + " " + why;
+                    _log.Warn("Enablement change rejected: " + message);
+                    return false;
+                }
+            }
+            foreach (var pending in enablePlan)
+            {
+                try { EnableDescriptor(pending); }
+                catch (Exception ex)
+                {
+                    _log.Error("Enable/load failed for dependency " + pending.Id, ex);
+                    message = "Failed to enable dependency " + pending.Id + " of " + d.Id + ": " + ex.Message;
+                    _serverCatalog.Rebuild(_descriptors.Where(x => x.UserEnabled));
+                    ReapplySessionPolicy();
+                    return false;
+                }
             }
 
             // Enabling
@@ -687,6 +840,10 @@ namespace TIMF.Core.Modding
                     if (_isDedicated && !TimfSides.IsAuthorityCapable(d.Side))
                     {
                         message = d.Id + " enabled, but client-only mods do not load on dedicated servers.";
+                    }
+                    else if (!d.PreWorld && !d.Loaded)
+                    {
+                        message = d.Id + " enabled (world-staged — loads when you enter a world).";
                     }
                     else if (!d.Loaded)
                     {
@@ -726,9 +883,140 @@ namespace TIMF.Core.Modding
                 return false;
             }
 
+            if (enablePlan.Count > 0)
+                message += " Also enabled " + enablePlan.Count + " required dependency mod(s): "
+                           + string.Join(", ", enablePlan.Select(x => x.Id)) + ".";
+
             ReapplySessionPolicy();
             _log.Info(message);
             return true;
+        }
+
+        /// <summary>Whether <paramref name="d"/> may have its enable state changed right now.</summary>
+        private bool CanToggleNow(ModDescriptor d, out string why)
+        {
+            why = null;
+            if (IsFrameworkProtected(d.Id))
+            {
+                why = "is a framework library mod and cannot be toggled.";
+                return false;
+            }
+            if (_sessionKind != TimfSessionKind.Menu)
+            {
+                why = "cannot be toggled while a world/session is active (use the feature toggle "
+                      + "in-world, or return to the main menu first).";
+                return false;
+            }
+            return true;
+        }
+
+        private ModDescriptor FindDescriptor(string id)
+        {
+            return _descriptors.FirstOrDefault(x =>
+                string.Equals(x.Id, id, StringComparison.OrdinalIgnoreCase));
+        }
+
+        /// <summary>
+        /// All currently-enabled mods that transitively hard-depend on <paramref name="id"/>, ordered
+        /// farthest-dependent first so each mod is torn down before the dependency it relies on.
+        /// </summary>
+        private List<ModDescriptor> TransitiveEnabledDependents(string id)
+        {
+            var collected = new List<ModDescriptor>();
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var queue = new Queue<string>();
+            queue.Enqueue(id);
+            while (queue.Count > 0)
+            {
+                var cur = queue.Dequeue();
+                foreach (var dep in _descriptors)
+                {
+                    if (dep.FailReason != null || !dep.UserEnabled)
+                        continue;
+                    if (string.Equals(dep.Id, id, StringComparison.OrdinalIgnoreCase))
+                        continue;
+                    var dependsOnCur = dep.Deps.Any(x => !x.Soft &&
+                        string.Equals(x.Id, cur, StringComparison.OrdinalIgnoreCase));
+                    if (!dependsOnCur)
+                        continue;
+                    if (!seen.Add(dep.Id))
+                        continue;
+                    collected.Add(dep);
+                    queue.Enqueue(dep.Id);
+                }
+            }
+            // BFS finds nearer dependents first; reverse so the outermost dependents unload first.
+            collected.Reverse();
+            return collected;
+        }
+
+        /// <summary>
+        /// Depth-first post-order plan of the disabled hard dependencies that must be enabled before
+        /// <paramref name="d"/>. Returns false and sets <paramref name="block"/> when a hard dependency
+        /// is missing, failed, or does not satisfy a declared MinVersion.
+        /// </summary>
+        private bool BuildEnablePlan(ModDescriptor d, List<ModDescriptor> plan, HashSet<string> visiting, out string block)
+        {
+            block = null;
+            foreach (var dep in d.Deps)
+            {
+                if (dep.Soft)
+                    continue;
+                var target = FindDescriptor(dep.Id);
+                if (target == null)
+                {
+                    block = "missing dependency '" + dep.Id + "'.";
+                    return false;
+                }
+                if (target.FailReason != null)
+                {
+                    block = "dependency '" + dep.Id + "' failed to load (" + target.FailReason + ").";
+                    return false;
+                }
+                if (!string.IsNullOrWhiteSpace(dep.MinVersion)
+                    && (!IsParsableVersion(dep.MinVersion) || !IsParsableVersion(target.Version)
+                        || !VersionOk(target.Version, dep.MinVersion)))
+                {
+                    block = "dependency '" + dep.Id + "' version " + target.Version
+                            + " does not satisfy required " + dep.MinVersion + ".";
+                    return false;
+                }
+                if (target.UserEnabled || plan.Contains(target))
+                    continue;
+                if (!visiting.Add(target.Id))
+                    continue; // guard against a dependency cycle (load-time already rejects these)
+                if (!BuildEnablePlan(target, plan, visiting, out block))
+                    return false;
+                plan.Add(target);
+            }
+            return true;
+        }
+
+        /// <summary>Tear down a mod's server + loaded state and persist it as user-disabled.</summary>
+        private void TeardownForDisable(ModDescriptor d)
+        {
+            if (d.ServerActive)
+                DeactivateServerPath(d);
+            if (d.Loaded && d.Instance != null)
+                UnloadOne(d);
+            d.UserEnabled = false;
+            _enablement.SetEnabled(d.Id, false);
+        }
+
+        /// <summary>Persist a mod as user-enabled and load / activate it as the session allows.</summary>
+        private void EnableDescriptor(ModDescriptor d)
+        {
+            d.UserEnabled = true;
+            _enablement.SetEnabled(d.Id, true);
+            if (!d.IsDeferredServerAuthority
+                && d.PreWorld
+                && !(_isDedicated && !TimfSides.IsAuthorityCapable(d.Side))
+                && !d.Loaded)
+            {
+                LoadOne(d);
+            }
+            if (d.ParticipatesInServer && ShouldActivateServerNow())
+                ActivateServerMods(new[] { d.Id });
         }
 
         private void ReapplySessionPolicy()
@@ -846,7 +1134,7 @@ namespace TIMF.Core.Modding
             }
             catch (Exception ex)
             {
-                _log.Debug("NotifyServerSideModsActive UI failed: " + ex.Message);
+                    _log.Debug("NotifyServerSideModsActive UI failed: " + ex.GetType().Name);
             }
         }
 
@@ -872,6 +1160,7 @@ namespace TIMF.Core.Modding
                     CanChangeEnabled(d),
                     InteractionLockReason(d),
                     d.Loaded,
+                    d.PreWorld,
                     d.ServerActive,
                     typeof(IModSettings).IsAssignableFrom(d.EntryType),
                     d.UserEnabled && d.SessionAllowed && d.Loaded
@@ -886,7 +1175,7 @@ namespace TIMF.Core.Modding
         {
             return d != null
                    && !IsFrameworkProtected(d.Id)
-                   && (_sessionKind == TimfSessionKind.Menu || !d.ParticipatesInServer);
+                   && _sessionKind == TimfSessionKind.Menu;
         }
 
         private string InteractionLockReason(ModDescriptor d)
@@ -896,8 +1185,8 @@ namespace TIMF.Core.Modding
                 return "Framework library mods are always enabled.";
             if (!d.SessionAllowed)
                 return d.SessionLockReason ?? "Unavailable in the current session.";
-            if (_sessionKind != TimfSessionKind.Menu && d.ParticipatesInServer)
-                return "Enablement is locked while a world/session is active.";
+            if (_sessionKind != TimfSessionKind.Menu)
+                return "Mod enablement is menu-only; use the feature toggle while in a world.";
             if (!d.UserEnabled)
                 return "Enable the mod from the main menu to open its settings.";
             if (!d.Loaded)
@@ -994,7 +1283,7 @@ namespace TIMF.Core.Modding
                 if (string.IsNullOrEmpty(packageDir) ||
                     Directory.GetFiles(packageDir, "*.dll", SearchOption.TopDirectoryOnly).Length != 1)
                 {
-                    _log.Error("Trusted framework component package contains unexpected DLLs: " + packageDir);
+                    _log.Error("Trusted framework component package contains unexpected DLLs in its package directory");
                     return false;
                 }
                 var relative = Path.GetFullPath(path).Substring(Path.GetFullPath(_home)
@@ -1023,7 +1312,7 @@ namespace TIMF.Core.Modding
             }
             catch (Exception ex)
             {
-                _log.Error("Framework component trust verification failed for " + path, ex);
+                _log.Error("Framework component trust verification failed for " + Path.GetFileName(path), ex);
             }
             return false;
         }

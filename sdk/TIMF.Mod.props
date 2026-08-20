@@ -6,8 +6,8 @@
 
     Build-time requirements:
       - TIMF_SDK environment variable (or a TimfSdkDir property) pointing at this SDK folder.
-      - A Terraria.exe COMPILE reference: TIMF_TERRARIA environment variable, or a detected Steam
-        install. Terraria.exe is a game binary you own; it is never redistributed with the SDK.
+      - A Terraria.exe COMPILE reference: TIMF_TERRARIA environment variable, or Terraria.exe
+        dropped next to this SDK. Terraria.exe is a game binary you own; it is never redistributed.
 
     This props is self-locating: it uses its own folder as the SDK root, so the redistributable
     reference DLLs (TIMF.Abstractions.dll, 0Harmony.dll) and the xna/ reference assemblies are
@@ -26,21 +26,19 @@
     <AssemblyName Condition="'$(AssemblyName)'==''">$(MSBuildProjectName)</AssemblyName>
     <RootNamespace Condition="'$(RootNamespace)'==''">$(MSBuildProjectName)</RootNamespace>
 
+    <!-- Do not embed the SDK author's local checkout path in generated debug metadata. -->
+    <DebugType Condition="'$(DebugType)' == ''">portable</DebugType>
+    <PathMap Condition="'$(PathMap)' == ''">$(TimfSdkDir)=/_/TIMF_SDK_SOURCE</PathMap>
+
     <!-- The mod id used for deployment defaults to the assembly (== project) name. -->
     <TimfModId Condition="'$(TimfModId)'==''">$(AssemblyName)</TimfModId>
   </PropertyGroup>
 
-  <!--
-    Terraria compile reference resolution: explicit property → TIMF_TERRARIA env → a Terraria.exe
-    dropped next to the SDK → common Steam install locations. Whichever resolves first wins.
-  -->
+  <!-- Terraria compile reference resolution: explicit property → TIMF_TERRARIA env → a Terraria.exe
+       dropped next to the SDK. Machine-specific install locations stay outside the SDK. -->
   <PropertyGroup>
     <TimfTerrariaRef Condition="'$(TimfTerrariaRef)'=='' and '$(TIMF_TERRARIA)'!=''">$(TIMF_TERRARIA)</TimfTerrariaRef>
     <TimfTerrariaRef Condition="'$(TimfTerrariaRef)'=='' and Exists('$(TimfSdkDir)Terraria.exe')">$(TimfSdkDir)Terraria.exe</TimfTerrariaRef>
-    <TimfTerrariaRef Condition="'$(TimfTerrariaRef)'=='' and Exists('C:\Program Files (x86)\Steam\steamapps\common\Terraria\Terraria.exe')">C:\Program Files (x86)\Steam\steamapps\common\Terraria\Terraria.exe</TimfTerrariaRef>
-    <TimfTerrariaRef Condition="'$(TimfTerrariaRef)'=='' and Exists('C:\Program Files\Steam\steamapps\common\Terraria\Terraria.exe')">C:\Program Files\Steam\steamapps\common\Terraria\Terraria.exe</TimfTerrariaRef>
-    <TimfTerrariaRef Condition="'$(TimfTerrariaRef)'=='' and Exists('D:\SteamLibrary\steamapps\common\Terraria\Terraria.exe')">D:\SteamLibrary\steamapps\common\Terraria\Terraria.exe</TimfTerrariaRef>
-    <TimfTerrariaRef Condition="'$(TimfTerrariaRef)'=='' and Exists('E:\SteamLibrary\steamapps\common\Terraria\Terraria.exe')">E:\SteamLibrary\steamapps\common\Terraria\Terraria.exe</TimfTerrariaRef>
   </PropertyGroup>
 
   <ItemGroup>
@@ -84,7 +82,7 @@
     <Error Condition="!Exists('$(TimfSdkDir)TIMF.Abstractions.dll')"
            Text="TIMF Mod SDK is incomplete: TIMF.Abstractions.dll was not found in '$(TimfSdkDir)'. Set the TIMF_SDK environment variable (or the TimfSdkDir property) to the unzipped TIMF Mod SDK folder." />
     <Error Condition="'$(TimfTerrariaRef)'=='' or !Exists('$(TimfTerrariaRef)')"
-           Text="Terraria compile reference not found. Set the TIMF_TERRARIA environment variable to your own Terraria.exe (a legal copy you own; it is never redistributed), or install Terraria to a standard Steam location." />
+           Text="Terraria compile reference not found. Set TIMF_TERRARIA to your own Terraria.exe (a legal copy you own; it is never redistributed), or place Terraria.exe next to the SDK." />
   </Target>
 
   <!--

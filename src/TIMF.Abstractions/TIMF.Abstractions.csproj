@@ -17,5 +17,9 @@
       <HintPath>$(TimfXnaDir)\Microsoft.Xna.Framework.Game.dll</HintPath>
       <Private>false</Private>
     </Reference>
+    <Reference Include="Microsoft.Xna.Framework.Graphics">
+      <HintPath>$(TimfXnaDir)\Microsoft.Xna.Framework.Graphics.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
   </ItemGroup>
 </Project>

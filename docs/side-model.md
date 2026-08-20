@@ -1,135 +1,137 @@
-# 侧别与协议模型
+# Side and Protocol Model
 
-TIMF 用**两根正交的轴**描述一个 mod。理解这两根轴是写 mod 的前提，也是理解框架加载行为的钥匙。
+Language: **English** | [简体中文](side-model.zh-CN.md)
 
-## 1. 两根轴
+TIMF describes a mod with **two orthogonal axes**. Understanding both is a prerequisite for writing a mod and for understanding the framework's loading behavior.
 
-| 轴 | 类型 | 回答的问题 | 由什么决定 |
+## 1. Two axes
+
+| Axis | Type | Question it answers | Determined by |
 |---|---|---|---|
-| **能力轴** | `TimfSide` | 这段代码属于哪个 Terraria 进程角色？ | 实现的能力接口（自动推断） |
-| **协议轴** | `TimfNetProfile` | 加入的对端需要装同样的代码吗？ | `[TimfMod(Net = ...)]`（默认 `Vanilla`） |
+| **Capability** | `TimfSide` | Which Terraria process role owns this code? | Implemented capability interfaces (inferred automatically) |
+| **Protocol** | `TimfNetProfile` | Must the remote peer install the same code? | `[TimfMod(Net = ...)]` (defaults to `Vanilla`) |
 
-两者独立取值，组合出全部合法状态：
+The axes are independent and combine into all valid states:
 
-| `TimfSide` | `TimfNetProfile` | 典型场景 |
+| `TimfSide` | `TimfNetProfile` | Typical use |
 |---|---|---|
-| `Client` | `Vanilla` | 客户端 QoL：自动治疗、准星、地图图标 |
-| `Authority` | `Vanilla` | 原版安全的主机逻辑：掉落倍率、天气控制 |
-| `Authority` | `Optional` / `Required` | 需双方同装的世界逻辑 |
-| `Both` | `Vanilla` | 原版安全的主机逻辑 **+ 自带 UI/overlay** |
-| `Both` | `Optional` / `Required` | 需握手，且有自己的客户端界面 |
+| `Client` | `Vanilla` | Client QoL: auto-healing, aim assistance, map icons |
+| `Authority` | `Vanilla` | Vanilla-safe host logic: drop multipliers, weather control |
+| `Authority` | `Optional` / `Required` | World logic that needs both sides to install the mod |
+| `Both` | `Vanilla` | Vanilla-safe host logic **plus its own UI/overlay** |
+| `Both` | `Optional` / `Required` | Handshake-required logic with its own client interface |
 
-## 2. 能力轴对齐原版设计
+## 2. The capability axis mirrors vanilla's design
 
-原版 Terraria **没有**侧别枚举，它只有两个独立的运行时事实：
+Vanilla Terraria has **no side enum**. It has two independent runtime facts:
 
-| 判据 | 含义 |
+| Predicate | Meaning |
 |---|---|
-| `!Main.dedServ` | 本进程有本地玩家可绘制 / 读输入 |
-| `Main.netMode != 1` | 本进程拥有世界模拟权 |
+| `!Main.dedServ` | This process has a local player whose screen and input can be used |
+| `Main.netMode != 1` | This process owns world simulation authority |
 
-这两者是**正交**的，构成一个 2 bit 空间：
+These facts are orthogonal and form a 2-bit space:
 
-| 进程 | 有本地玩家 | 有世界权威 |
+| Process | Local player | World authority |
 |---|---|---|
-| 单人（netMode 0） | ✓ | ✓ |
-| 联机客户端（netMode 1） | ✓ | ✗ |
-| 主机 / listen（netMode 2） | ✓ | ✓ |
-| 专用服（dedServ） | ✗ | ✓ |
+| Single-player (`netMode 0`) | ✓ | ✓ |
+| Multiplayer client (`netMode 1`) | ✓ | ✗ |
+| Host / listen server (`netMode 2`) | ✓ | ✓ |
+| Dedicated server (`dedServ`) | ✗ | ✓ |
 
-`TimfSide` 就是这个 2 bit 空间的直接镜像，所以它是 `[Flags]` 而不是一串具名组合——`Both` 字面上就是 `Client | Authority`：
+`TimfSide` directly mirrors this 2-bit space, so it is a `[Flags]` enum rather than a list of named combinations. `Both` literally means `Client | Authority`:
 
 ```csharp
 [Flags]
 public enum TimfSide { None = 0, Client = 1, Authority = 2, Both = Client | Authority }
 ```
 
-### `Authority` 不等于「服务器」
+### `Authority` does not mean “server”
 
-这是最容易误解的一点。原版把世界模拟代码**也编译进客户端二进制**，只用 `if (Main.netMode != 1)` 在运行时门控。`TimfSide.Authority` 沿用同样的含义：
+This is the most common misunderstanding. Vanilla compiles world-simulation code into the **client binary** as well, then gates it at runtime with `if (Main.netMode != 1)`. `TimfSide.Authority` uses the same meaning:
 
-> **`Authority` = 「这段代码是世界逻辑」，而不是「这个进程是服务器」。**
+> **`Authority` means “this is world logic”, not “this process is a server”.**
 
-当前进程此刻能否真的写世界，是另一个问题，由运行时回答：
+Whether the current process can actually write to the world is a separate runtime question:
 
 ```csharp
 if (context.Authority.IsAuthoritative)
 {
-    // 只有单人 / 主机 / 专用服会进这里
+    // Only single-player / host / dedicated server enters here.
 }
 ```
 
-对 `Optional`/`Required` 协议档的 mod，握手成功后它**也会在联机客户端上激活**（用于镜像/预测），此时 `IsAuthoritative` 为 `false`。所以 `OnAuthorityActivate` 触发**不代表**你有权写世界。
+A mod using the `Optional` or `Required` protocol profile also activates on a multiplayer client after a successful handshake (for mirroring or prediction). `IsAuthoritative` is then `false`, so `OnAuthorityActivate` does **not** mean that the mod may write world state.
 
-## 3. 协议轴是 TIMF 独有的
+## 3. The protocol axis is TIMF-specific
 
-原版没有任何对应概念——它纯粹是 TIMF 握手协议层的东西，因此**必须**独立于能力轴。
+Vanilla has no equivalent concept. This is purely part of TIMF's handshake protocol and must therefore remain independent of the capability axis.
 
 ```csharp
 public enum TimfNetProfile { Vanilla = 0, Optional = 1, Required = 2 }
 ```
 
-三个值是一条严格性阶梯：
+The three values form a strictness ladder:
 
-| 值 | 进握手目录 | 缺失时 | 原版客户端能加入你的房间吗 |
+| Value | In handshake directory | If absent | Can a vanilla client join your world? |
 |---|---|---|---|
-| `Vanilla` | 否 | —— | **能** |
-| `Optional` | 是 | 不踢，仅不启用 | 能 |
-| `Required` | 是 | **踢出**（含版本过低） | 不能 |
+| `Vanilla` | No | — | **Yes** |
+| `Optional` | Yes | Do not kick; simply do not activate | Yes |
+| `Required` | Yes | **Kick** (including versions that are too old) | No |
 
-**默认是 `Vanilla`**：破坏原版兼容性必须显式 opt-in。加一个 `IAuthorityMod` 接口不会让你的主机突然开始踢玩家。
+**The default is `Vanilla`**: breaking vanilla compatibility requires explicit opt-in. Adding `IAuthorityMod` does not suddenly make your host kick players.
 
-## 4. 加载与激活规则
+## 4. Loading and activation rules
 
-全部行为都从这两根轴推导，没有针对具体枚举值的特判：
+All behavior follows from the two axes; there are no special cases for individual enum values:
 
-| 行为 | 规则 |
+| Behavior | Rule |
 |---|---|
-| 客户端半边加载时机 | `Side` 含 `Client` 且非专用服 → 启动即加载 |
-| 权威半边加载时机 | `Side` 含 `Authority` → 进入会话时加载 |
-| 纯权威 mod 是否延迟加载 | `Side == Authority`（无 `Client` 位）→ 是，停用时卸载 |
-| 在联机客户端上镜像激活 | `Net >= Optional` 且握手成功 |
-| 进握手目录 | `Net >= Optional` |
-| 踢掉缺失的对端 | `Net == Required` |
-| 专用服上跳过 | `Side` 不含 `Authority` |
+| Pre-world loading | `[TimfMod(LoadBeforeWorld = true)]`, content mods, and hard dependencies of pre-world mods → load after injection and before the main menu |
+| Default loading time | Mods not promoted to pre-world loading → load when entering a world and unload when returning to the main menu |
+| Authority activation | `Side` includes `Authority` → activate the authority half according to single-player/host/dedicated-server state or the handshake result |
+| Delay for pure authority mods | `Side == Authority` (no `Client` bit) → even after discovery, wait for authority activation to load; unload when deactivated |
+| Mirror activation on multiplayer clients | `Net >= Optional` and handshake succeeds |
+| Included in handshake directory | `Net >= Optional` |
+| Kick a missing peer | `Net == Required` |
+| Skip on dedicated servers | `Side` does not include `Authority` |
 
-## 5. `Side` 是断言，不是覆盖
+## 5. `Side` is an assertion, not an override
 
-`[TimfMod(Side = ...)]` 写了就必须与接口推断的结果**完全一致**，否则加载失败。
+When `[TimfMod(Side = ...)]` is specified, it must **exactly match** the side inferred from the implemented interfaces or loading fails.
 
 ```csharp
-// ✅ 一致 —— Side 起自文档化作用
+// ✅ Consistent — Side documents the intended contract
 [TimfMod(Id = "HighLight", Side = TimfSide.Client)]
-public sealed class HighLightMod : IClientMod, IModSettings { }
+public sealed class HighLightMod : IClientMod, IModSettings, IModFeatureToggle { }
 
-// ❌ 加载失败 —— 没实现 IAuthorityMod 却声称有权威半边
+// ❌ Loading fails — IAuthorityMod is not implemented, but the mod claims an authority half
 [TimfMod(Id = "Bad", Side = TimfSide.Both)]
 public sealed class BadMod : IClientMod { }
 ```
 
-这样接口就是唯一真相，不存在「用 attribute 悄悄改变分类」的路径。要让 mod 具备某个能力，就去实现对应接口。
+Interfaces remain the single source of truth; an attribute cannot silently change classification. To give a mod a capability, implement the corresponding interface.
 
-## 6. 几个容易踩的点
+## 6. Common pitfalls
 
-**`IAuthorityLifecycle` 不是能力标记。** 它只提供 `OnAuthorityActivate` / `OnAuthorityDeactivate` 回调。单独实现它**不会**让 mod 变成权威侧，也不影响侧别推断。能力只由 `IAuthorityMod` / `IClientMod` 声明。
+**`IAuthorityLifecycle` is not a capability marker.** It only provides `OnAuthorityActivate` / `OnAuthorityDeactivate` callbacks. Implementing it alone does not make a mod an authority-side mod and does not affect side inference. Capabilities are declared by `IAuthorityMod` / `IClientMod`.
 
-**`IModSettings` 不计入客户端能力。** 它虽然标着 `[TimfHook(TimfSide.Client)]`，但那回答的是「这个钩子能在哪个进程被派发」，而能力推断回答的是「这个 mod 是否*需要*一个客户端半边」。`IModSettings` 只回答前者——它是机会性的客户端表面，在专用服上不被调用即可。因此一个 `IAuthorityMod + IModSettings` 的 mod 仍是纯 `Authority` 侧，保持延迟加载语义。
+**`IModSettings` does not count as client capability.** Although it carries `[TimfHook(TimfSide.Client)]`, that attribute answers “in which process can this hook be dispatched?”, while capability inference answers “does this mod *require* a client half?”. `IModSettings` is an opportunistic client surface and is simply not called on a dedicated server. Therefore an `IAuthorityMod + IModSettings` mod is still pure `Authority` side and keeps delayed-loading semantics.
 
-**判断「是否破坏原版兼容」要看 `NetProfile`，不要 switch `Side`。** 这正是两根轴分开的意义。
+**`IModFeatureToggle` is not the primary mod switch.** The primary switch is managed by `IModRegistry.TrySetEnabled` and locks `Authority` / `Both` mods after entering a world. A feature switch is a mod-owned configuration state that can be changed safely in-world; it does not call `Load` / `Unload`. `IModInfo.FeatureToggle` is non-null only when the mod is loaded and the current session permits the operation.
 
-**进入世界后，权威集合必须冻结。** 在主菜单可以修改模组主开关；进入单人、主机、专用服或联机世界
-后，`Authority` 与 `Both` 的主开关都会锁定，避免客户端、主机和存档在同一会话中使用不同的模组集合。
-纯 `Client` 模组不改变世界或协议，仍可本地切换。
+**Use pre-world loading sparingly.** It is intended for content registration, shared service publication, and infrastructure that must be available from the main menu. Ordinary UI, map overlays, and gameplay logic should stay in the default world phase so menu transitions do not carry unnecessary initialization cost.
 
-**加入服务器时由服务器集合决定双端/服务端模组。** 联机客户端在 HostHello 前先默认禁止所有本地
-`Authority` / `Both` 执行；握手后只放行“服务器公布集合 ∩ 本地已启用且版本兼容集合”。服务器没有
-启用的本地模组不会永久改写用户偏好，只在当前会话标记为不可用，同时锁住主开关和设置页。回到主菜单
-后解除会话门闩。
+**To decide whether vanilla compatibility is broken, inspect `NetProfile`, not `Side`.** This is exactly why the two axes are separate.
 
-## 7. 设计沿革
+**The authority set is frozen after entering a world.** The main menu can change primary mod switches; after entering a single-player, host, dedicated-server, or multiplayer world, primary switches for `Authority` and `Both` are locked. This prevents clients, hosts, and saves from using different mod sets in one session. Pure `Client` mods can still be toggled locally.
 
-早期版本用单个四值枚举 `Client / Server / Both / Plugin`。它的问题是把两个正交概念拍平进了一根轴：`Client`/`Server`/`Both` 描述进程角色，而 `Plugin` 描述的是「不进握手、原版兼容」——后者其实是 `Server` 的一个属性，不是与之平级的第四种角色。
+**The server's set decides which dual-side/server mods are active when joining.** Before `HostHello`, a multiplayer client disables all local `Authority` / `Both` execution by default. After the handshake, it enables only the intersection of “server-advertised set” and “locally enabled, version-compatible set”. Local mods not enabled by the server do not permanently change user preferences; they are marked unavailable for the current session and their primary switches and settings pages are locked. The session gate is removed on returning to the main menu.
 
-后果包括：`Both` 无法表达「客户端 + 原版安全权威」这个完全合理的组合（框架会硬性报错要求拆成两个 mod）；`RequiredOnJoin` 对 `Plugin` 被静默强制为 false（非法状态可表示但被偷偷改写）；以及五个互相重叠、互不嵌套的谓词函数——这是「一个枚举在编码多个布尔」的典型信号。
+## 7. Design history
 
-拆成两根轴后，非法状态在类型层面就不可表达，加载行为全部可从规则表推导，`Both` 也不再需要解释成第三档，它字面就是 `Client | Authority`。
+Early versions used one four-value enum: `Client / Server / Both / Plugin`. This flattened two orthogonal concepts into one axis: `Client` / `Server` / `Both` described process roles, while `Plugin` described “does not enter the handshake and remains vanilla-compatible”. The latter is actually a property of `Server`, not a fourth peer role.
+
+The consequences included: `Both` could not express the perfectly reasonable combination “client + vanilla-safe authority” (the framework instead forced the code to be split into two mods); `RequiredOnJoin` was silently forced to `false` for `Plugin` (an invalid state could be represented and then quietly rewritten); and five overlapping, non-nested predicate functions appeared — the classic sign that one enum was encoding multiple booleans.
+
+With two axes, invalid states are unrepresentable at the type level, loading behavior can be derived from the rule tables, and `Both` no longer needs to be explained as a third tier: it literally means `Client | Authority`.

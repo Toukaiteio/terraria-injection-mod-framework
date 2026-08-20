@@ -16,6 +16,7 @@ $core = Join-Path $Root "src\TIMF.Core\bin\$Configuration\net48\TIMF.Core.dll"
 $content = Join-Path $Root "src\TIMF.Content\bin\$Configuration\net48\TIMF.Content.dll"
 $launcher = Join-Path $Root "src\TIMF.Launcher\bin\$Configuration\net48\TIMF.Launcher.exe"
 $timfUi = Join-Path $Root "libs\TIMF.UI\bin\$Configuration\net48\TIMF.UI.dll"
+$timfPinyin = Join-Path $Root "libs\TIMF.Pinyin\bin\$Configuration\net48\TIMF.Pinyin.dll"
 
 New-Item -ItemType Directory -Force -Path $Dist | Out-Null
 New-Item -ItemType Directory -Force -Path (Join-Path $Dist "Mods") | Out-Null
@@ -47,6 +48,32 @@ if (Test-Path $timfUi) {
   Write-Warning "Missing TIMF.UI artifact: $timfUi"
 }
 
+# TIMF.Pinyin is a framework-shipped library mod -> deploy into Mods\TIMF.Pinyin\.
+# Unlike TIMF.UI it is NOT a trusted component (pure managed string logic), so it runs in the
+# normal mod sandbox and is NOT added to trusted-framework-components.v1. It carries its NuGet
+# dependency (NPinyin.dll) alongside so the pinyin dataset ships once for the whole install.
+if (Test-Path $timfPinyin) {
+  $pyDir = Join-Path $Dist "Mods\TIMF.Pinyin"
+  New-Item -ItemType Directory -Force -Path $pyDir | Out-Null
+  Copy-Item $timfPinyin (Join-Path $pyDir "TIMF.Pinyin.dll") -Force
+  # Bundle non-framework dependency dlls (NPinyin) from the build output.
+  $pyBin = Split-Path $timfPinyin
+  $pyFrameworkPrefixes = @("TIMF.", "Terraria", "Microsoft.Xna", "0Harmony", "ReLogic", "System.", "mscorlib")
+  Get-ChildItem $pyBin -Filter "*.dll" -File -ErrorAction SilentlyContinue | ForEach-Object {
+    if ($_.Name -eq "TIMF.Pinyin.dll") { return }
+    $isFramework = $false
+    foreach ($p in $pyFrameworkPrefixes) {
+      if ($_.Name.StartsWith($p, [StringComparison]::OrdinalIgnoreCase)) { $isFramework = $true; break }
+    }
+    if (-not $isFramework) {
+      Copy-Item $_.FullName (Join-Path $pyDir $_.Name) -Force
+      Write-Host "  TIMF.Pinyin dep: $($_.Name)"
+    }
+  }
+} else {
+  Write-Warning "Missing TIMF.Pinyin artifact: $timfPinyin"
+}
+
 # --- Assemble the standalone Mod SDK (for developing mods OUTSIDE this repo) ---
 # Ships the redistributable compile references + shared build props + the dotnet new template,
 # so a mod author only needs this folder (TIMF_SDK) plus their own Terraria.exe.
@@ -76,7 +103,7 @@ if (Test-Path $SdkProps) {
     "  dotnet new install .\templates\timf-mod",
     "",
     "You also need a Terraria.exe compile reference (a legal copy you own):",
-    "  setx TIMF_TERRARIA `"C:\...\Terraria\Terraria.exe`"   # or a detected Steam install",
+    "  setx TIMF_TERRARIA `"<path-to-your-Terraria.exe>`"",
     "",
     "## Create and build a mod",
     "  dotnet new timf-mod -n MyMod --display `"My Mod`" --modAuthor `"you`"",
@@ -117,12 +144,12 @@ $MingwGpp = $null
 if ($env:TIMF_MINGW_GPP -and (Test-I686Gpp $env:TIMF_MINGW_GPP)) {
   $MingwGpp = $env:TIMF_MINGW_GPP
 }
-$candidates = @(
-  "D:\i686-8.1.0-release-posix-dwarf-rt_v6-rev0\mingw32\bin\g++.exe",
-  "C:\tools\msys64\mingw32\bin\g++.exe",
-  "C:\msys64\mingw32\bin\g++.exe",
-  "D:\msys64\mingw32\bin\g++.exe"
-)
+$candidates = @()
+foreach ($mingwRoot in @($env:TIMF_MINGW_ROOT, $env:MSYS2_ROOT)) {
+  if ([string]::IsNullOrWhiteSpace($mingwRoot)) { continue }
+  $candidates += Join-Path $mingwRoot "bin\g++.exe"
+  $candidates += Join-Path $mingwRoot "mingw32\bin\g++.exe"
+}
 if (-not $MingwGpp) {
   foreach ($c in $candidates) {
     if (Test-I686Gpp $c) { $MingwGpp = $c; break }
@@ -136,7 +163,7 @@ if (-not $MingwGpp) {
   }
 }
 if (-not $MingwGpp) {
-  $msg = "32-bit (i686) g++ not found. Install MinGW-w64 i686 or set TIMF_MINGW_GPP."
+  $msg = "32-bit (i686) g++ not found. Install MinGW-w64 i686, set TIMF_MINGW_GPP, or set TIMF_MINGW_ROOT."
   # GitHub Actions / explicit require must never produce a dist without Bootstrap.
   if ($env:GITHUB_ACTIONS -eq "true" -or $env:TIMF_REQUIRE_BOOTSTRAP -eq "1") {
     throw $msg

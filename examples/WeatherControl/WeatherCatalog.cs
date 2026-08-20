@@ -1,12 +1,17 @@
 using System;
 using System.Collections.Generic;
+using System.Reflection;
+using System.Text;
+using Terraria;
 using TIMF.Abstractions;
 
 namespace WeatherControl
 {
     /// <summary>
-    /// Lists weather channels registered with the framework <see cref="IWeatherService"/>.
-    /// This is the stable discovery path for host UIs (vanilla + any plugin-registered channels).
+    /// Discovers weather-related Main/event fields and Start/Stop APIs via reflection
+    /// so the UI can list everything the game exposes (and survive minor API renames).
+    /// TIMF is vanilla-only, so this won't find tModLoader weather mods — but it covers
+    /// all stock atmosphere systems and any future fields on the same types.
     /// </summary>
     internal sealed class WeatherCatalog
     {
@@ -14,7 +19,7 @@ namespace WeatherControl
         {
             public string Group;
             public string Name;
-            public string Kind;
+            public string Kind; // field / method / property
             public string Detail;
         }
 
@@ -30,38 +35,23 @@ namespace WeatherControl
         public IReadOnlyList<Entry> Entries => _entries;
         public bool IsBuilt => _built;
 
-        public void EnsureBuilt(IWeatherService weather)
+        public void EnsureBuilt()
         {
             if (_built)
                 return;
             _built = true;
             try
             {
-                if (weather == null)
-                {
-                    _log?.Warn("WeatherCatalog: IWeatherService unavailable");
-                    return;
-                }
-
-                foreach (var ch in weather.Channels)
-                {
-                    if (ch == null)
-                        continue;
-                    _entries.Add(new Entry
-                    {
-                        Group = ch.Category.ToString(),
-                        Name = ch.Id,
-                        Kind = ch.ValueKind.ToString(),
-                        Detail = FormatChannelDetail(ch),
-                    });
-                }
-
+                ScanType(typeof(Main), "Main");
+                ScanTypeByName("Terraria.GameContent.Events.Sandstorm", "Sandstorm");
+                ScanTypeByName("Terraria.GameContent.Events.LanternNight", "LanternNight");
+                ScanTypeByName("Terraria.GameContent.Events.BirthdayParty", "BirthdayParty");
                 _entries.Sort((a, b) =>
                 {
                     var c = string.Compare(a.Group, b.Group, StringComparison.OrdinalIgnoreCase);
                     return c != 0 ? c : string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase);
                 });
-                _log?.Info("WeatherCatalog: " + _entries.Count + " registered weather channels");
+                _log?.Info("WeatherCatalog: " + _entries.Count + " atmosphere APIs discovered");
             }
             catch (Exception ex)
             {
@@ -69,33 +59,99 @@ namespace WeatherControl
             }
         }
 
-        /// <summary>Force rebuild after plugins register extra channels mid-session.</summary>
-        public void Invalidate()
+        private void ScanTypeByName(string fullName, string group)
         {
-            _built = false;
-            _entries.Clear();
+            try
+            {
+                var t = typeof(Main).Assembly.GetType(fullName);
+                if (t != null)
+                    ScanType(t, group);
+            }
+            catch { /* ignore */ }
         }
 
-        private static string FormatChannelDetail(IWeatherChannel ch)
+        private void ScanType(Type t, string group)
         {
-            var write = ch.CanWrite ? "rw" : "ro";
-            switch (ch.ValueKind)
+            if (t == null)
+                return;
+
+            var flags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static;
+
+            foreach (var f in t.GetFields(flags))
             {
-                case WeatherValueKind.Choice:
-                    var choices = ch.Choices != null && ch.Choices.Count > 0
-                        ? string.Join("|", ch.Choices)
-                        : "";
-                    return write + "  " + ch.DisplayName + (choices.Length > 0 ? "  [" + choices + "]" : "");
-                case WeatherValueKind.Scalar:
-                case WeatherValueKind.Integer:
-                    var range = "";
-                    if (ch.Min.HasValue || ch.Max.HasValue)
-                        range = "  " + (ch.Min.HasValue ? ch.Min.Value.ToString() : "") + ".." +
-                                (ch.Max.HasValue ? ch.Max.Value.ToString() : "");
-                    return write + "  " + ch.DisplayName + range;
-                default:
-                    return write + "  " + ch.DisplayName;
+                if (!IsWeatherName(f.Name))
+                    continue;
+                _entries.Add(new Entry
+                {
+                    Group = group,
+                    Name = f.Name,
+                    Kind = "field",
+                    Detail = f.FieldType.Name + (f.IsLiteral ? " const" : ""),
+                });
             }
+
+            foreach (var p in t.GetProperties(flags))
+            {
+                if (!IsWeatherName(p.Name))
+                    continue;
+                _entries.Add(new Entry
+                {
+                    Group = group,
+                    Name = p.Name,
+                    Kind = "prop",
+                    Detail = p.PropertyType.Name,
+                });
+            }
+
+            foreach (var m in t.GetMethods(flags))
+            {
+                if (m.IsSpecialName || m.DeclaringType != t)
+                    continue;
+                if (!IsWeatherMethod(m.Name))
+                    continue;
+                var ps = m.GetParameters();
+                var sb = new StringBuilder();
+                sb.Append(m.ReturnType.Name).Append('(');
+                for (var i = 0; i < ps.Length; i++)
+                {
+                    if (i > 0) sb.Append(", ");
+                    sb.Append(ps[i].ParameterType.Name);
+                }
+                sb.Append(')');
+                _entries.Add(new Entry
+                {
+                    Group = group,
+                    Name = m.Name,
+                    Kind = "method",
+                    Detail = sb.ToString(),
+                });
+            }
+        }
+
+        private static bool IsWeatherName(string n)
+        {
+            if (string.IsNullOrEmpty(n))
+                return false;
+            return Contains(n, "rain") || Contains(n, "wind") || Contains(n, "cloud")
+                || Contains(n, "storm") || Contains(n, "sand") || Contains(n, "snow")
+                || Contains(n, "moon") || Contains(n, "slime") || Contains(n, "lantern")
+                || Contains(n, "blizzard") || Contains(n, "weather");
+        }
+
+        private static bool IsWeatherMethod(string n)
+        {
+            if (string.IsNullOrEmpty(n))
+                return false;
+            if (n.StartsWith("get_", StringComparison.Ordinal) || n.StartsWith("set_", StringComparison.Ordinal))
+                return false;
+            return Contains(n, "Rain") || Contains(n, "Wind") || Contains(n, "Cloud")
+                || Contains(n, "Storm") || Contains(n, "Sand") || Contains(n, "Slime")
+                || Contains(n, "Lantern") || Contains(n, "Weather") || Contains(n, "Moon");
+        }
+
+        private static bool Contains(string hay, string needle)
+        {
+            return hay.IndexOf(needle, StringComparison.OrdinalIgnoreCase) >= 0;
         }
     }
 }

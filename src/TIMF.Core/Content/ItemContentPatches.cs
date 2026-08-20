@@ -408,7 +408,7 @@ namespace TIMF.Core.Content
                 }
                 catch (Exception ex)
                 {
-                    log?.Warn("Content: resolving ItemTooltip factory failed: " + ex.Message);
+            log?.Warn("Content: resolving ItemTooltip factory failed: " + ex.GetType().Name);
                 }
             }
 

@@ -12,6 +12,10 @@
       <HintPath>..\..\src\TIMF.Abstractions\bin\Release\net48\TIMF.Abstractions.dll</HintPath>
       <Private>false</Private>
     </Reference>
+    <Reference Include="0Harmony">
+      <HintPath>..\..\dist\0Harmony.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
     <Reference Include="Terraria">
       <HintPath>$(TimfTerrariaRef)</HintPath>
       <Private>false</Private>

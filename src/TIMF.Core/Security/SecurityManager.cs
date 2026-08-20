@@ -499,7 +499,7 @@ namespace TIMF.Core.Security
                 if (File.Exists(_storePath)) File.Replace(temp, _storePath, null);
                 else File.Move(temp, _storePath);
             }
-            catch (Exception ex) { _log.Warn("Failed to persist security grants: " + ex.Message); }
+            catch (Exception ex) { _log.Warn("Failed to persist security grants: " + ex.GetType().Name); }
         }
 
         private void LoadPersistentGrants()
@@ -521,7 +521,7 @@ namespace TIMF.Core.Security
             catch (Exception ex)
             {
                 _grants.Clear();
-                _log.Warn("Security grant store rejected; defaulting to deny: " + ex.Message);
+                _log.Warn("Security grant store rejected; defaulting to deny: " + ex.GetType().Name);
             }
         }
 
@@ -571,7 +571,18 @@ namespace TIMF.Core.Security
         }
 
         private void Audit(Record r, string outcome) => _log.Info("Security: mod=" + r.Request.ModId +
-            " kind=" + r.Request.Kind + " target=" + r.Request.Target + " outcome=" + outcome);
+            " kind=" + r.Request.Kind + " target=" + SafeTargetLabel(r.Request.Target) + " outcome=" + outcome);
+
+        private static string SafeTargetLabel(string target)
+        {
+            if (string.IsNullOrEmpty(target)) return "<none>";
+            try
+            {
+                var name = Path.GetFileName(target);
+                return string.IsNullOrEmpty(name) ? "<path>" : "<path>/" + name;
+            }
+            catch { return "<path>"; }
+        }
         private static bool IsDedicated() { try { return Terraria.Main.dedServ; } catch { return true; } }
         private static bool Zh() { try { return Terraria.Localization.Language.ActiveCulture.Name.StartsWith("zh", StringComparison.OrdinalIgnoreCase); } catch { return false; } }
         private static string KindLabel(SensitiveOperationKind kind) => kind == SensitiveOperationKind.FileRead ? (Zh() ? "读取文件" : "Read file") : kind == SensitiveOperationKind.FileWrite ? (Zh() ? "写入文件" : "Write file") : (Zh() ? "执行进程" : "Execute process");

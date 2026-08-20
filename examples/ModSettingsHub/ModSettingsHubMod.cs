@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Input;
 using Terraria;
@@ -10,7 +11,7 @@ namespace ModSettingsHub
     /// <summary>
     /// Compact mod table-of-contents: list + enable + open settings page.
     /// </summary>
-    [TimfMod(Id = "ModSettingsHub", Side = TimfSide.Client)]
+    [TimfMod(Id = "ModSettingsHub", Side = TimfSide.Client, LoadBeforeWorld = true)]
     [TimfDependsOn("TIMF.UI", MinVersion = "1.0.0")]
     public sealed class ModSettingsHubMod : IClientMod
     {
@@ -29,7 +30,7 @@ namespace ModSettingsHub
         private ISecurityCenter _securityCenter;
 
         public string Name => "Mod Settings";
-        public string Version => "1.3.0";
+        public string Version => "1.4.0";
 
         public void Load(IModContext context)
         {
@@ -99,30 +100,9 @@ namespace ModSettingsHub
             IModInfo selected = null;
             if (_ui.BeginChild("modlist", 280f))
             {
-                for (var i = 0; i < mods.Count; i++)
-                {
-                    var m = mods[i];
-                    var isSel = m.Id == _selectedId;
-                    if (isSel)
-                        selected = m;
-
-                    if (_ui.Selectable(FormatListLabel(m), isSel))
-                    {
-                        if (_selectedId != m.Id)
-                        {
-                            _selectedId = m.Id;
-                            _statusLine = null;
-                            if (CanOpenSettings(m))
-                                _settingsOpen = true;
-                        }
-                        else if (CanOpenSettings(m))
-                        {
-                            _settingsOpen = true;
-                        }
-
-                        selected = m;
-                    }
-                }
+                // Two-stage lifecycle: startup (pre-world) mods first, world-staged mods below.
+                selected = DrawModGroup(mods, true, selected);
+                selected = DrawModGroup(mods, false, selected);
             }
             _ui.EndChild();
 
@@ -157,6 +137,49 @@ namespace ModSettingsHub
                 _ui.Spacing(2f);
                 _ui.TextColored(_statusLine, new Color(200, 220, 160));
             }
+        }
+
+        private IModInfo DrawModGroup(IReadOnlyList<IModInfo> mods, bool preWorld, IModInfo selected)
+        {
+            var headerDrawn = false;
+            for (var i = 0; i < mods.Count; i++)
+            {
+                var m = mods[i];
+                if (m.LoadsBeforeWorld != preWorld)
+                    continue;
+
+                if (!headerDrawn)
+                {
+                    headerDrawn = true;
+                    _ui.TextColored(preWorld
+                            ? _ctx.L.Get("UI.GroupPreWorld", "Startup mods (loaded before worlds)")
+                            : _ctx.L.Get("UI.GroupWorld", "World mods (loaded in-world)"),
+                        new Color(140, 175, 215));
+                }
+
+                var isSel = m.Id == _selectedId;
+                if (isSel)
+                    selected = m;
+
+                if (_ui.Selectable(FormatListLabel(m), isSel))
+                {
+                    if (_selectedId != m.Id)
+                    {
+                        _selectedId = m.Id;
+                        _statusLine = null;
+                        if (CanOpenSettings(m))
+                            _settingsOpen = true;
+                    }
+                    else if (CanOpenSettings(m))
+                    {
+                        _settingsOpen = true;
+                    }
+
+                    selected = m;
+                }
+            }
+
+            return selected;
         }
 
         private void DrawSecurityBanner()
@@ -209,6 +232,33 @@ namespace ModSettingsHub
             }
             else
             {
+                // In-world the mod enable switch is menu-only; surface the mod's own feature
+                // switch instead (config-backed flip — no load/unload, no stutter).
+                var featureToggle = selected.FeatureToggle;
+                if (featureToggle != null)
+                {
+                    var featureOn = featureToggle.FeatureEnabled;
+                    if (_ui.Checkbox(_ctx.L.Get("UI.FeatureEnabled", "Feature enabled"), ref featureOn))
+                    {
+                        try
+                        {
+                            featureToggle.FeatureEnabled = featureOn;
+                            _statusLine = null;
+                        }
+                        catch (Exception ex)
+                        {
+                            _ctx.Log.Error("Feature toggle failed for " + selected.Id, ex);
+                            _statusLine = "Feature toggle failed (see log).";
+                        }
+                    }
+                }
+                else if (selected.IsLoaded && HasSettingsCapability(selected))
+                {
+                    _ui.TextColored(_ctx.L.Get("UI.NoFeatureToggle",
+                            "No single feature switch — use the mod's settings window."),
+                        new Color(180, 170, 130));
+                }
+
                 var state = enabled
                     ? _ctx.L.Get("UI.EnabledLockedOn", "Enabled: ON (locked)")
                     : _ctx.L.Get("UI.EnabledLockedOff", "Enabled: OFF (locked)");
@@ -218,8 +268,8 @@ namespace ModSettingsHub
                     lockReason = _ctx.L.Get("UI.ServerDisabled",
                         "Not enabled by the current server; controls are unavailable.");
                 else if (!IsProtected(selected.Id))
-                    lockReason = _ctx.L.Get("UI.WorldLocked",
-                        "Return to the main menu to change this mod's enable state.");
+                    lockReason = _ctx.L.Get("UI.ModToggleMenuOnly",
+                        "Mod enablement is menu-only; in-world use the feature switch above.");
                 if (!string.IsNullOrEmpty(lockReason))
                     _ui.TextColored(lockReason,
                         session == null || session.IsSessionAllowed
@@ -250,11 +300,14 @@ namespace ModSettingsHub
             // [C]/[P] = no handshake (vanilla clients OK) · [S]/[B] = clients need TIMF
             var side = SideTag(m);
             var en = m.IsEnabled ? "" : _ctx.L.Get("UI.TagOff", " [OFF]");
+            var notLoaded = m.IsEnabled && !m.IsLoaded && !m.LoadsBeforeWorld
+                ? _ctx.L.Get("UI.TagNotLoaded", " [NOT LOADED]")
+                : "";
             var session = m as IModSessionState;
             var unavailable = session == null || session.IsSessionAllowed
                 ? "" : _ctx.L.Get("UI.TagServerOff", " [SERVER OFF]");
             var srv = m.ServerLogicActive ? _ctx.L.Get("UI.TagActive", " *") : "";
-            return side + " " + m.Name + en + unavailable + srv;
+            return side + " " + m.Name + en + notLoaded + unavailable + srv;
         }
 
         /// <summary>

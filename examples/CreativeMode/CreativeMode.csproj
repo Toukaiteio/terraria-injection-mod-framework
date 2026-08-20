@@ -9,6 +9,7 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\TIMF.Abstractions\TIMF.Abstractions.csproj" />
+    <ProjectReference Include="..\..\libs\TIMF.Pinyin\TIMF.Pinyin.csproj" />
   </ItemGroup>
   <ItemGroup>
     <Reference Include="Terraria">
@@ -27,8 +28,5 @@
       <HintPath>$(TimfXnaDir)\Microsoft.Xna.Framework.Graphics.dll</HintPath>
       <Private>false</Private>
     </Reference>
-  </ItemGroup>
-  <ItemGroup>
-    <PackageReference Include="NPinyin" Version="0.2.6321.26573" />
   </ItemGroup>
 </Project>

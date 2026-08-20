@@ -596,7 +596,7 @@ namespace TIMF.Core.Session
             }
             catch (Exception ex)
             {
-                _log.Debug("NotifyUser UI failed: " + ex.Message);
+                    _log.Debug("NotifyUser UI failed: " + ex.GetType().Name);
             }
         }
 

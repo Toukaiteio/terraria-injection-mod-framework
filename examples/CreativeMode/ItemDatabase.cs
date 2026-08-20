@@ -5,6 +5,7 @@ using Terraria;
 using Terraria.ID;
 using TIMF.Abstractions;
 using TIMF.Abstractions.Security;
+using TIMF.Pinyin;
 
 namespace CreativeMode
 {
@@ -26,6 +27,7 @@ namespace CreativeMode
     {
         private readonly ILogger _log;
         private readonly ITerrariaReflection _reflection;
+        private readonly IPinyinService _pinyin;
         private readonly List<ItemEntry> _all = new List<ItemEntry>();
         private bool _built;
 
@@ -35,10 +37,11 @@ namespace CreativeMode
         private bool _giveResolved;
         private bool _giveFailed;
 
-        public ItemDatabase(ILogger log, ITerrariaReflection reflection)
+        public ItemDatabase(ILogger log, ITerrariaReflection reflection, IPinyinService pinyin)
         {
             _log = log;
             _reflection = reflection;
+            _pinyin = pinyin;
         }
 
         public IReadOnlyList<ItemEntry> All => _all;
@@ -72,8 +75,8 @@ namespace CreativeMode
                         Type = type,
                         Name = name,
                         NameLower = name.ToLowerInvariant(),
-                        Pinyin = PinyinHelper.ToPinyin(name),
-                        Initials = PinyinHelper.ToInitials(name),
+                        Pinyin = _pinyin != null ? _pinyin.ToPinyin(name) : "",
+                        Initials = _pinyin != null ? _pinyin.ToInitials(name) : "",
                     });
                 }
 
@@ -109,12 +112,23 @@ namespace CreativeMode
             for (var i = 0; i < _all.Count; i++)
             {
                 var e = _all[i];
-                if (PinyinHelper.Matches(e.Name, e.NameLower, e.Pinyin, e.Initials, q)
+                if (Matches(e, q)
                     || (isNum && e.Type == idQuery))
                 {
                     into.Add(e);
                 }
             }
+        }
+
+        /// <summary>Name/pinyin/initials match via the shared service, or name-only fallback.</summary>
+        private bool Matches(ItemEntry e, string queryLower)
+        {
+            if (_pinyin != null)
+                return _pinyin.Matches(e.Name, e.NameLower, e.Pinyin, e.Initials, queryLower);
+            if (string.IsNullOrEmpty(queryLower))
+                return true;
+            return !string.IsNullOrEmpty(e.NameLower)
+                   && e.NameLower.IndexOf(queryLower, StringComparison.Ordinal) >= 0;
         }
 
         public bool Give(int type, int amount)

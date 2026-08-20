@@ -3,20 +3,21 @@
     Shared TIMF build paths.
     Override Terraria reference with:
       - env TIMF_TERRARIA  (absolute path to Terraria.exe), or
-      - MSBuild property -p:TimfTerrariaRef=C:\path\Terraria.exe
+      - MSBuild property -p:TimfTerrariaRef=<absolute path>
   -->
   <PropertyGroup>
     <TimfRepoRoot>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)'))</TimfRepoRoot>
     <TimfXnaDir>$(TimfRepoRoot)lib\xna</TimfXnaDir>
     <TimfLibDir>$(TimfRepoRoot)lib</TimfLibDir>
 
-    <!-- Prefer env → repo lib\Terraria.exe → default Steam install.
-         For any non-standard location set the TIMF_TERRARIA environment variable
-         (or pass -p:TimfTerrariaRef=<absolute path>). -->
+    <!-- Keep local checkout paths out of generated PDB/source metadata. -->
+    <DebugType Condition="'$(DebugType)' == ''">portable</DebugType>
+    <PathMap Condition="'$(PathMap)' == ''">$(TimfRepoRoot)=/_/TIMF_SOURCE</PathMap>
+
+    <!-- Resolve only from explicit configuration or the repository-local compile reference.
+         This keeps machine-specific install locations out of the repository. -->
     <TimfTerrariaRef Condition="'$(TimfTerrariaRef)' == '' and '$(TIMF_TERRARIA)' != ''">$(TIMF_TERRARIA)</TimfTerrariaRef>
     <TimfTerrariaRef Condition="'$(TimfTerrariaRef)' == '' and Exists('$(TimfLibDir)\Terraria.exe')">$(TimfLibDir)\Terraria.exe</TimfTerrariaRef>
-    <TimfTerrariaRef Condition="'$(TimfTerrariaRef)' == '' and Exists('C:\Program Files (x86)\Steam\steamapps\common\Terraria\Terraria.exe')">C:\Program Files (x86)\Steam\steamapps\common\Terraria\Terraria.exe</TimfTerrariaRef>
-    <TimfTerrariaRef Condition="'$(TimfTerrariaRef)' == '' and Exists('C:\Program Files\Steam\steamapps\common\Terraria\Terraria.exe')">C:\Program Files\Steam\steamapps\common\Terraria\Terraria.exe</TimfTerrariaRef>
     <!-- Last resort so csproj still has a HintPath (build will fail with a clear missing-file error). -->
     <TimfTerrariaRef Condition="'$(TimfTerrariaRef)' == ''">$(TimfLibDir)\Terraria.exe</TimfTerrariaRef>
   </PropertyGroup>

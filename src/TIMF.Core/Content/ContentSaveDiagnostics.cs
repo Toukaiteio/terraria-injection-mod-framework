@@ -84,7 +84,7 @@ namespace TIMF.Core.Content
             }
             catch (Exception ex)
             {
-                _log?.Warn("Content diag: save census failed: " + ex.Message);
+            _log?.Warn("Content diag: save census failed: " + ex.GetType().Name);
             }
         }
 
@@ -97,7 +97,7 @@ namespace TIMF.Core.Content
             }
             catch (Exception ex)
             {
-                _log?.Warn("Content diag: load census failed: " + ex.Message);
+            _log?.Warn("Content diag: load census failed: " + ex.GetType().Name);
             }
         }
 

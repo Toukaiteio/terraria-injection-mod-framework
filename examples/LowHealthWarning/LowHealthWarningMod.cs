@@ -12,7 +12,7 @@ namespace LowHealthWarning
     /// Only paints a thin fading border — center FOV stays clear.
     /// </summary>
     [TimfMod(Id = "LowHealthWarning", Side = TimfSide.Client)]
-    public sealed class LowHealthWarningMod : IClientMod, IModSettings
+    public sealed class LowHealthWarningMod : IClientMod, IModSettings, IModFeatureToggle
     {
         private const string ToggleId = "LowHealthWarning.Toggle";
         private IModContext _ctx;
@@ -87,6 +87,20 @@ namespace LowHealthWarning
                 SaveConfig();
         }
 
+        /// <summary>In-world feature switch for hubs — mod enablement itself is menu-only.</summary>
+        public bool FeatureEnabled
+        {
+            get { return _config != null && _config.Enabled; }
+            set
+            {
+                if (_config == null || _config.Enabled == value)
+                    return;
+                _enabled = value;
+                _config.Enabled = value;
+                SaveConfig();
+            }
+        }
+
         private void SaveConfig()
         {
             try
@@ -149,6 +163,14 @@ namespace LowHealthWarning
                 if (_pixel == null || _pixel.IsDisposed)
                     return;
 
+                // Physical backbuffer size. Main.screenWidth/Height flip to UI-logical values
+                // (physical / UIScale) around SetZoom_UI during the draw phase, which shrank the
+                // vignette to the top-left ~1/UIScale of the screen. We render with Matrix.Identity
+                // (physical pixels), so size from the viewport instead.
+                var vp = _pixel.GraphicsDevice.Viewport;
+                var screenW = vp.Width > 0 ? vp.Width : Main.screenWidth;
+                var screenH = vp.Height > 0 ? vp.Height : Main.screenHeight;
+
                 var sb = Main.spriteBatch;
                 sb.Begin(
                     SpriteSortMode.Deferred,
@@ -161,7 +183,7 @@ namespace LowHealthWarning
 
                 try
                 {
-                    DrawEdgeVignette(sb, strength);
+                    DrawEdgeVignette(sb, strength, screenW, screenH);
                 }
                 finally
                 {
@@ -178,10 +200,8 @@ namespace LowHealthWarning
         /// Draw four edge strips as nested bands: outer high alpha → inner transparent.
         /// Center of the screen is never covered.
         /// </summary>
-        private void DrawEdgeVignette(SpriteBatch sb, float strength)
+        private void DrawEdgeVignette(SpriteBatch sb, float strength, int w, int h)
         {
-            var w = Main.screenWidth;
-            var h = Main.screenHeight;
             if (w < 32 || h < 32)
                 return;
 

@@ -4,6 +4,8 @@
   "Settings.RingDistance": "环绕距离",
   "Settings.HideOnScreen": "在屏幕内时隐藏",
   "Settings.SkipPillars": "跳过天界柱",
+  "Settings.ShowHead": "显示 Boss 头像",
+  "Settings.HeadSize": "头像大小",
   "Settings.Toggle": "快捷键：{0}",
   "Settings.Unbound": "（未绑定）",
   "Keybind.Toggle": "Boss 光标 开关",

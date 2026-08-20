@@ -561,7 +561,7 @@ namespace TIMF.Core.Content
             }
             catch (Exception ex)
             {
-                _log.Warn("Content: " + idType.Name + ".Search registration failed: " + ex.Message);
+                _log.Warn("Content: " + idType.Name + ".Search registration failed: " + ex.GetType().Name);
             }
         }
 

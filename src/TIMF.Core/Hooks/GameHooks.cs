@@ -180,6 +180,7 @@ namespace TIMF.Core.Hooks
                 _mods.Services.Register<IInfoAccessoryHookRegistry>(_infoAcc);
                 _mods.Services.Register<IKeybindService>(_keybinds);
                 _mods.Services.Register<ITimfSession>(_session);
+                _mods.Services.Register<IVanillaTextures>(new Content.VanillaTextureService(_log));
 
                 // Side-scoped bags (Client null on dedicated).
                 bool dedicated;

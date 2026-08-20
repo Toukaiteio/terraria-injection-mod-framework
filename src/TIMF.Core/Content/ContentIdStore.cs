@@ -23,7 +23,7 @@ namespace TIMF.Core.Content
     internal sealed class ContentIdStore
     {
         /// <summary>
-        /// First id handed to modded items. Sits above vanilla (6147 in 1.4.5.6) with room for
+        /// First id handed to modded items. Sits above vanilla (6196 in 1.4.5.7) with room for
         /// the game to keep growing. <c>ItemID.Count</c> is an Int16, so ids must stay under
         /// 32767 — this base still leaves roughly 22k slots.
         /// </summary>
@@ -378,7 +378,7 @@ namespace TIMF.Core.Content
             {
                 // Losing this map silently would reshuffle ids and corrupt saves, so make it loud.
                 _log.Error("Failed to read content-ids.json — modded item ids may be reassigned "
-                           + "and existing saves may lose modded items: " + ex.Message);
+                        + "and existing saves may lose modded items: " + ex.GetType().Name);
             }
         }
 
@@ -457,7 +457,7 @@ namespace TIMF.Core.Content
             }
             catch (Exception ex)
             {
-                _log.Error("Failed to write content-ids.json: " + ex.Message);
+            _log.Error("Failed to write content-ids.json: " + ex.GetType().Name);
             }
         }
 

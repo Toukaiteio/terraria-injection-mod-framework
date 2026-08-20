@@ -16,7 +16,7 @@ namespace WorldMapIcons
     /// icons share the exact transform / SpriteBatch the game uses for its own map icons.
     /// </summary>
     [TimfMod(Id = "WorldMapIcons", Side = TimfSide.Client)]
-    public sealed class WorldMapIconsMod : IClientMod, IModSettings, IMapOverlayHook
+    public sealed class WorldMapIconsMod : IClientMod, IModSettings, IMapOverlayHook, IModFeatureToggle
     {
         private IModContext _ctx;
         private WorldMapIconsConfig _config;
@@ -296,8 +296,24 @@ namespace WorldMapIcons
             dirty |= ui.SliderFloat(L.Get("Settings.ProjectileScale", "Projectile scale"), ref _config.ProjectileScale, 0.1f, 1.5f);
             dirty |= ui.SliderFloat(L.Get("Settings.DrawDistance", "Draw distance (tiles, -1=∞)"), ref _config.DrawDistance, -1f, 500f);
 
+            ui.Spacing();
+            ui.TextColored(L.Get("Settings.Hint", "Open the map (fullscreen or minimap) to see icons."), new Color(160, 200, 255));
+
             if (dirty)
                 SaveConfig();
+        }
+
+        /// <summary>In-world feature switch for hubs — mod enablement itself is menu-only.</summary>
+        public bool FeatureEnabled
+        {
+            get { return _config != null && _config.Enabled; }
+            set
+            {
+                if (_config == null || _config.Enabled == value)
+                    return;
+                _config.Enabled = value;
+                SaveConfig();
+            }
         }
 
         private void SaveConfig()

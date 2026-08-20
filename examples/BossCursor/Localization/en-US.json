@@ -4,6 +4,8 @@
   "Settings.RingDistance": "Ring distance",
   "Settings.HideOnScreen": "Hide when on screen",
   "Settings.SkipPillars": "Skip pillars",
+  "Settings.ShowHead": "Show boss head",
+  "Settings.HeadSize": "Head size",
   "Settings.Toggle": "Toggle: {0}",
   "Settings.Unbound": "(unbound)",
   "Keybind.Toggle": "Boss Cursor Toggle",

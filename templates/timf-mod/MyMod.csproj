@@ -6,7 +6,7 @@
 
     Point the build at the SDK once, either way:
       - set the TIMF_SDK environment variable to the unzipped "TIMF Mod SDK" folder, or
-      - pass  -p:TimfSdkDir=C:\path\to\ModSDK  on the command line.
+ - pass  -p:TimfSdkDir=<path-to-ModSDK>  on the command line.
     You also need a Terraria.exe compile reference (TIMF_TERRARIA env var, or a Steam install).
   -->
   <PropertyGroup>

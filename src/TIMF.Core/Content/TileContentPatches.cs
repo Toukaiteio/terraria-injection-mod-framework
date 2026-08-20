@@ -153,7 +153,7 @@ namespace TIMF.Core.Content
                     prefix: new HarmonyMethod(typeof(TileContentPatches), nameof(BeforeGetChestDrop)));
 
                 var pickTile = AccessTools.Method(typeof(Player), nameof(Player.PickTile),
-                    new[] { typeof(int), typeof(int), typeof(int) });
+                    new[] { typeof(int), typeof(int), typeof(int), typeof(int) });
                 if (pickTile != null)
                     harmony.Patch(pickTile,
                         prefix: new HarmonyMethod(typeof(TileContentPatches), nameof(BeforePickTile)));

@@ -360,7 +360,7 @@ namespace TIMF.Core.Content
                     catch (Exception ex)
                     {
                         safe = false;
-                        _log?.Warn("Content: could not expand SceneMetrics." + f.Name + ": " + ex.Message);
+                _log?.Warn("Content: could not expand SceneMetrics." + f.Name + ": " + ex.GetType().Name);
                     }
                 }
 

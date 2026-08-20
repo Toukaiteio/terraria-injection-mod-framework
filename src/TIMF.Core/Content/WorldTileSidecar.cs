@@ -155,7 +155,8 @@ namespace TIMF.Core.Content
                         records[PositionKey(x, y)] = record;
                         stash.Add(new RemovedTile(x, y, tile));
 
-                        var vanillaSafe = new Tile(tile);
+                        var vanillaSafe = new Tile();
+                        vanillaSafe.CopyFrom(tile);
                         if (tileDefinition != null)
                         {
                             vanillaSafe.active(false);
@@ -313,7 +314,7 @@ namespace TIMF.Core.Content
             catch (Exception ex)
             {
                 _pendingLoad = null;
-                _log.Error("Content tile sidecar: loading " + path + " failed", ex);
+                _log.Error("Content tile sidecar: loading " + Path.GetFileName(path) + " failed", ex);
             }
         }
 
@@ -554,7 +555,8 @@ namespace TIMF.Core.Content
 
             public Tile ApplyTo(Tile vanilla, ushort type, ushort wall)
             {
-                var result = new Tile(vanilla);
+                var result = new Tile();
+                result.CopyFrom(vanilla);
                 if (type > 0)
                 {
                     result.type = type;

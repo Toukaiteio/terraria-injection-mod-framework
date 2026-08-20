@@ -55,7 +55,8 @@ namespace TIMF.Abstractions
         /// <summary>
         /// Authority-only mods have nothing to run until the session grants authority,
         /// so the loader defers their assembly load until activation and unloads on deactivate.
-        /// A mod with a client half must load eagerly instead.
+        /// A mod with a client half is not deferred by side classification; its concrete
+        /// load stage is selected by LoadBeforeWorld / world-staged loading.
         /// </summary>
         public static bool IsDeferredAuthority(TimfSide side)
         {

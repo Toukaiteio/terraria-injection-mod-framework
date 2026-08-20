@@ -27,26 +27,23 @@ namespace WeatherControl
     internal sealed class WeatherControlConfig
     {
         public bool Enabled = true;
-        /// <summary>Re-assert weather after vanilla UpdateWeather (recommended so rain sticks).</summary>
-        public bool LockWeather = true;
+        public bool LockWeather = false;
 
         public WeatherPreset Preset = WeatherPreset.Unchanged;
 
         /// <summary>0..7 — Full / WaningGibbous / ThirdQuarter / …</summary>
         public int MoonPhase = 0;
+        public bool ApplyMoonPhase = false;
 
         /// <summary>Target wind in vanilla units (~ -1.2 .. 1.2). Sign = direction.</summary>
         public float WindSpeed = 0f;
+        public bool ApplyWind = false;
 
         public bool BloodMoon = false;
         public bool PumpkinMoon = false;
         public bool FrostMoon = false;
         public bool LanternNight = false;
-
-        // Legacy JSON gates (read only for migration; UI removed — values always apply).
-        public bool ApplyMoonPhase = true;
-        public bool ApplyWind = true;
-        public bool ApplySpecialEvents = true;
+        public bool ApplySpecialEvents = false;
 
         public static WeatherControlConfig LoadOrCreate(IModStorage storage, string name)
         {

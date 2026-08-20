@@ -414,7 +414,7 @@ namespace TIMF.Core.Hooks
                         }
                         catch (Exception ex)
                         {
-                            BudgetLog("SetText title failed: " + ex.Message);
+                            BudgetLog("SetText title failed: " + ex.GetType().Name);
                         }
                         continue;
                     }

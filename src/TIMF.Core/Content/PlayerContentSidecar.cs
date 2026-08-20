@@ -355,7 +355,7 @@ namespace TIMF.Core.Content
             }
             catch (Exception ex)
             {
-                _log?.Error("Content sidecar: writing " + path + " failed", ex);
+                _log?.Error("Content sidecar: writing " + Path.GetFileName(path) + " failed", ex);
             }
         }
 
@@ -397,7 +397,7 @@ namespace TIMF.Core.Content
             }
             catch (Exception ex)
             {
-                _log?.Error("Content sidecar: reading " + path + " failed", ex);
+                _log?.Error("Content sidecar: reading " + Path.GetFileName(path) + " failed", ex);
             }
             return list;
         }

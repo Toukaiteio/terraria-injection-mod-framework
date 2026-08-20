@@ -51,7 +51,12 @@ namespace TIMF.Core.Security
                 {
                     writer.Write(text ?? "");
                     writer.Flush();
-                    fs.Flush(true);
+                    // Deliberately no fs.Flush(true): a forced physical disk sync (fsync) here
+                    // blocks the calling (render) thread for milliseconds and was the cause of the
+                    // severe hitch on every config save — i.e. every in-world feature toggle. The
+                    // temp-file + atomic File.Replace/Move below already gives crash-consistency
+                    // (readers see either the old or the new file, never a torn one); the OS can
+                    // flush its own buffer to disk lazily.
                 }
                 if (File.Exists(path)) File.Replace(temp, path, null);
                 else File.Move(temp, path);

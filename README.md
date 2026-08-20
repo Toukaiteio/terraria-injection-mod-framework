@@ -1,166 +1,185 @@
 # TIMF — Terraria Injection Mod Framework
 
-面向 **原版泰拉瑞亚 1.4.5.x** 的注入式模组框架，**不依赖 tModLoader**。
+Language: **English** | [简体中文](README.zh-CN.md)
 
-侧别模型对齐原版自身的设计：**能力接口 → 自动推断侧别 → 侧别作用域服务门闩**，而不是让作者手写枚举去声明。
+An injection-based mod framework for **vanilla Terraria 1.4.5.x** that **does not depend on tModLoader**.
 
-框架原则是**稳定优先、安全优先**：敏感本机权限默认拒绝，工作区外读取、自主写文件及 Shell/进程执行
-必须经框架申请授权，并由框架在执行前向用户或服务器管理员说明目标、用途和授权范围。当前权限代理尚未
-作为 public API 发布，因此模组不得直接绕过框架调用这些系统能力。
+Its side model follows vanilla Terraria's own design: **capability interfaces → automatic side inference → side-scoped service gates**, rather than asking authors to declare a hand-written side enum.
 
-> 仅供个人学习 / 单机或私服自用。主菜单左下角游戏版本号上方会显示 **TIMF** 版本号（框架自身绘制）。
+The framework puts **stability and security first**. Sensitive local permissions are denied by default. Reading outside the workspace, writing files, and running shells or processes must go through an explicit framework authorization request; before execution, the framework explains the target, purpose, and scope to the user or server administrator. The permission proxy is not yet a public API, so mods must not bypass the framework to call these system capabilities directly.
+
+> For personal learning and private single-player or self-hosted server use only. The **TIMF** version is shown above the game version in the lower-left corner of the main menu (drawn by the framework itself).
 
 ---
 
-## 文档
+## Documentation
 
-| 文档 | 内容 | 适合谁 |
+| Topic | English (default) | 中文 |
 |---|---|---|
-| **[编写一个模组](docs/writing-a-mod.md)** | 从建工程到跑起来的最短路径、最小骨架、检查清单 | 第一次写 TIMF mod |
-| **[API 参考](docs/api-reference.md)** | `TIMF.Abstractions` 全部公共类型与精确签名 | 写 mod 时随时查 |
-| **[侧别与协议模型](docs/side-model.md)** | 两根正交轴、加载/激活规则表、设计沿革 | 想搞懂框架行为 |
+| Write a mod | **[Writing a TIMF Mod](docs/writing-a-mod.md)** | [编写一个 TIMF 模组](docs/writing-a-mod.zh-CN.md) |
+| API reference | **[API Reference](docs/api-reference.md)** | [API 参考](docs/api-reference.zh-CN.md) |
+| Side and protocol model | **[Side and Protocol Model](docs/side-model.md)** | [侧别与协议模型](docs/side-model.zh-CN.md) |
 
-新手路径：**编写一个模组** → 遇到具体 API 查 **API 参考** → 对加载时机有疑问看 **侧别与协议模型**。
+Recommended path: **Writing a TIMF Mod** → look up details in the **API Reference** → read the **Side and Protocol Model** when loading or activation timing is unclear.
 
 ---
 
-## 快速开始
+## Quick start
 
 ```powershell
-.\build.ps1 Release           # 框架 + TIMF.UI + Bootstrap → dist\
+.\build.ps1 Release           # Framework + TIMF.UI + Bootstrap → dist\
 .\build-mods.ps1 Release      # mods\*   → dist\Mods\<Id>\
-.\build-examples.ps1 Release  # examples\*（CI / 公开样例）
+.\build-examples.ps1 Release  # examples\* (CI / public samples)
 
-.\dist\TIMF.Launcher.exe      # 启动
+.\dist\TIMF.Launcher.exe      # Launch
 ```
 
-`build-mods.ps1` 依赖 `build.ps1` 的产物，**必须先跑前者**。
+`build-mods.ps1` depends on the output of `build.ps1`; **run the latter first**.
 
-依赖：.NET SDK、`lib/xna`、`Terraria.exe` 引用、32 位 MinGW（编译 Bootstrap）。路径解析规则见 `Directory.Build.props`，可用环境变量 `TIMF_TERRARIA` 覆盖 Terraria 位置。
+Requirements: the .NET SDK, the vendored `lib/xna` references, a `Terraria.exe` reference, and 32-bit MinGW (for compiling Bootstrap). The repository deliberately does not contain a game binary or machine-specific toolchain paths.
 
-游戏内按 **F9** 打开 Mod Settings 中心。日志在 `dist\logs\`。
+### Fresh clone and local paths
 
-### 独立开发模组（Mod SDK + `dotnet new` 模板）
-
-除了在仓库内 `mods\` 下开发，也可以**完全脱离本仓库**、用发布包内的 **Mod SDK** 开发单个模组。`build.ps1`
-会把可分发的 SDK 组装到 `dist\ModSDK\`（含引用程序集、共享构建 props 与 `dotnet new` 模板）：
+After cloning, provide the local-only inputs before the first build:
 
 ```powershell
-setx TIMF_SDK      "<解压后的 ModSDK 路径>"    # 一次性，重开终端生效
-setx TIMF_TERRARIA "<你自备的 Terraria.exe>"   # 合法游戏副本，绝不随 SDK 分发
+# Compile-time game reference: use your own legal Terraria installation.
+$env:TIMF_TERRARIA = "<path-to-your-Terraria.exe>"
+
+# Bootstrap compiler: an i686 / 32-bit g++ executable.
+$env:TIMF_MINGW_GPP = "<path-to-i686-g++.exe>"
+# Alternatively set TIMF_MINGW_ROOT to the MinGW/MSYS2 root that contains it.
+
+.\build.ps1 Release
+.\build-mods.ps1 Release
+```
+
+The compile-time `Terraria.exe` must match the version of the game you launch. For the current setup, use the 1.4.5.7 executable; an older reference such as 1.4.5.6 can compile successfully but fail at runtime when hooks call changed game APIs.
+
+For a persistent Windows setting, use `setx` and open a new terminal afterwards. `TIMF_TERRARIA_SERVER` is the optional equivalent used by `TIMF.Launcher.exe --server`. `Directory.Build.props` and `sdk/TIMF.Mod.props` also accept an explicit MSBuild property when an environment variable is not suitable; neither file contains a fixed Steam or user directory.
+
+The launcher can receive the executable path as its first argument, use `TIMF_TERRARIA`, or read the local-only `dist\timf.json` (`gamePath` / `serverPath`). The `dist\timf.json`, `dist\config\`, and `dist\logs\` files are machine state and must not be committed or included in a shared archive. To restore a mod's first-run defaults after reusing an old `dist`, remove its persisted config; for Grand Design+, remove `dist\config\GrandDesignPlus.json` and `dist\config\mod-data\GrandDesignPlus\GrandDesignPlus.json` before launching again.
+
+The `mods\` directory is also intentionally gitignored: it contains local/private mod sources and is not recreated by a fresh clone. Keep any local mod sources or patches separately, or use the tracked `examples\` projects as the public buildable samples. A fresh clone with no separately restored `mods\` directory will make `build-mods.ps1` report that there are no local mods to build.
+
+Press **F9** in game to open the Mod Settings hub. Logs are written to `dist\logs\`.
+
+### Standalone mod development (Mod SDK + `dotnet new` template)
+
+Mods can be developed entirely **outside this repository** with the **Mod SDK** included in a release package. `build.ps1` assembles a distributable SDK in `dist\ModSDK\`, including reference assemblies, shared build props, and a `dotnet new` template:
+
+```powershell
+setx TIMF_SDK      "<extracted ModSDK path>"    # One-time; restart the terminal afterwards
+setx TIMF_TERRARIA "<your own Terraria.exe>"   # A legitimate game copy; never distributed with the SDK
 
 dotnet new install <ModSDK>\templates\timf-mod
 dotnet new timf-mod -n MyMod --display "My Mod"
 cd MyMod
-dotnet build -c Release        # 产出可直接投放的 dist\MyMod\（dll + 本地化 + 默认配置）
+dotnet build -c Release        # Produces a deployable dist\MyMod\ (DLL + localization + default config)
 ```
 
-生成的骨架是一个含配置与本地化的 `IClientMod`。`net48` / `x86`、框架与 Terraria/XNA 引用、构建后自动
-打包都由 SDK 的 `TIMF.Mod.props` 统一提供，模组的 `.csproj` 只需一行 `Import`。编译产物会经加载前安全
-审计；把 `dist\MyMod\` 整个目录拷进 TIMF home 的 `Mods\` 即可安装。
+The generated skeleton includes configuration, localization, and an `IClientMod` implementation. `net48` / `x86`, framework and Terraria/XNA references, and post-build packaging are provided by `TIMF.Mod.props`; the mod `.csproj` only needs one `Import`. The build output is scanned by the pre-load security audit. Copy the entire `dist\MyMod\` directory to `Mods\` in the TIMF home directory to install it.
 
 ---
 
-## 架构
+## Architecture
 
 ```
-TIMF.Launcher  →  启动 Terraria.exe 并注入 TIMF.Bootstrap.dll
-TIMF.Bootstrap →  在游戏进程内托管 CLR 4.0，调用 TIMF.Core.Loader.Initialize
-TIMF.Core      →  发现 / 侧别推断 / 拓扑排序 / 服务注册 / 会话与握手
-TIMF.UI        →  IClientMod 库模组，向外暴露 IImmediateModeUi
+TIMF.Launcher  →  Starts Terraria.exe and injects TIMF.Bootstrap.dll
+TIMF.Bootstrap →  Hosts CLR 4.0 in the game process and calls TIMF.Core.Loader.Initialize
+TIMF.Core      →  Discovery / side inference / topological sort / service registration / sessions and handshake
+TIMF.UI        →  Library mod implementing IClientMod and exposing IImmediateModeUi
 ```
 
-| 路径 | 说明 |
+| Path | Description |
 |---|---|
-| `src/TIMF.Abstractions` | 公共 API：能力接口、侧别、钩子、服务 |
-| `src/TIMF.Core` | 加载器、SideClassifier、会话/握手、Harmony patch |
-| `src/TIMF.Launcher` | 启动器 + 注入 |
-| `src/TIMF.Bootstrap` | 原生 x86 CLR 宿主 |
-| `libs/TIMF.UI` | 即时模式 UI 库（`IClientMod`） |
-| `examples/*` | 公开示例源码（最佳实践） |
-| `mods/*` | 本地编译部署的模组（gitignore） |
-| `dist/` | 构建输出 |
+| `src/TIMF.Abstractions` | Public API: capability interfaces, sides, hooks, and services |
+| `src/TIMF.Core` | Loader, SideClassifier, session/handshake, and Harmony patches |
+| `src/TIMF.Launcher` | Launcher and injection |
+| `src/TIMF.Bootstrap` | Native x86 CLR host |
+| `libs/TIMF.UI` | Immediate-mode UI library (`IClientMod`) |
+| `libs/TIMF.Pinyin` | Shared Chinese pinyin search library mod (reused by examples such as `CreativeMode`) |
+| `examples/*` | Public example sources and best practices |
+| `mods/*` | Locally built and deployed mods (gitignored) |
+| `dist/` | Build output |
 
 ---
 
-## 核心概念速览
+## Core concepts at a glance
 
-TIMF 用**两根正交的轴**描述一个 mod。完整说明见 [侧别与协议模型](docs/side-model.md)。
+TIMF describes a mod with **two orthogonal axes**. See the [Side and Protocol Model](docs/side-model.md) for the complete explanation.
 
-**能力轴 `TimfSide`** —— 代码属于哪个进程角色，由实现的接口自动推断，镜像原版的 `!Main.dedServ` / `Main.netMode != 1`：
+**Capability axis — `TimfSide`**: which process role the code belongs to, inferred automatically from implemented interfaces, mirroring vanilla's `!Main.dedServ` / `Main.netMode != 1`:
 
-| 实现的接口 | 推断出的 `TimfSide` |
+| Implemented interface | Inferred `TimfSide` |
 |---|---|
 | `IClientMod` | `Client` |
 | `IAuthorityMod` | `Authority` |
-| 两者都实现 | `Both`（= `Client \| Authority`） |
+| Both | `Both` (`Client \| Authority`) |
 
-**协议轴 `TimfNetProfile`** —— 加入的对端是否需要装同样代码，默认 `Vanilla`：
+**Protocol axis — `TimfNetProfile`**: whether the remote peer must install the same code, defaulting to `Vanilla`:
 
-| 值 | 进握手目录 | 原版客户端能加入你的房间吗 |
+| Value | Included in handshake directory | Can a vanilla client join your world? |
 |---|---|---|
-| `Vanilla`（默认） | 否 | **能** |
-| `Optional` | 是 | 能（对端没有则不启用） |
-| `Required` | 是 | **不能**（会被踢出） |
+| `Vanilla` (default) | No | **Yes** |
+| `Optional` | Yes | Yes (the mod is disabled if absent on the peer) |
+| `Required` | Yes | **No** (the peer is kicked) |
 
 ```csharp
-// 客户端显示增强
+// Client-side presentation enhancement
 [TimfMod(Id = "HighLight", Side = TimfSide.Client)]
-public sealed class HighLightMod : IClientMod, IModSettings { }
+public sealed class HighLightMod : IClientMod, IModSettings, IModFeatureToggle { }
 
-// 原版兼容的主机逻辑（掉落 / 经济 / 天气）—— 默认 Net = Vanilla
+// Vanilla-compatible authority logic (drops / economy / weather) — Net defaults to Vanilla
 [TimfMod(Id = "LootRates")]
-public sealed class LootRatesMod : IAuthorityMod, IModSettings, IAuthorityLifecycle { }
+public sealed class LootRatesMod : IAuthorityMod, IModSettings, IAuthorityLifecycle, IModFeatureToggle { }
 
-// 如需联机双方都安装，可在权威模组上声明 Net = TimfNetProfile.Required。
+// If both peers must install the mod, declare Net = TimfNetProfile.Required on the authority mod.
 ```
 
-> `[TimfMod(Side = ...)]` 是**断言**而非覆盖：写了就必须与接口推断结果一致，否则加载失败。接口是唯一真相。
+> `[TimfMod(Side = ...)]` is an **assertion**, not an override: when present, it must match the side inferred from interfaces or loading fails. Interfaces are the single source of truth.
 
-**侧别作用域服务**——`IModContext` 按侧别分发能力，用不着的那半边直接给 null 或用运行时门闩挡住：
+`IModFeatureToggle` is a mod's **in-world feature switch**. It changes only the mod's own configuration state; it does not load, unload, or re-patch the mod. It is useful for temporarily disabling major functionality after entering a world. The Mod Settings hub shows the switch when the mod implements the interface and the current session permits the operation; the mod's primary enabled switch remains a main-menu setting.
 
-| 属性 | 专用服 | 联机客户端 | 单人 / 主机 |
+Mods load by world phase by default: they load when entering a world and unload when returning to the main menu. Only content mods, mods declaring `[TimfMod(LoadBeforeWorld = true)]`, and their hard dependencies are prepared after injection and before entering a world.
+
+**Side-scoped services** — `IModContext` distributes capabilities by side; the unavailable half is either `null` or protected by a runtime gate:
+
+| Property | Dedicated server | Multiplayer client | Single-player / host |
 |---|---|---|---|
-| `context.Client` | **null** | 可用 | 可用 |
+| `context.Client` | **null** | Available | Available |
 | `context.Authority.IsAuthoritative` | `true` | **`false`** | `true` |
-| `context.Security` | 无交互时拒绝 | 可申请 | 可申请 |
+| `context.Security` | Denied without interaction | Can request | Can request |
 
-客户端钩子注册表（`IPlayerUpdateHook` 等）在专用服上 `Add` 会被拒绝并记日志。
+Client hook registries such as `IPlayerUpdateHook` reject `Add` on a dedicated server and log the reason.
 
-敏感文件/进程操作必须先展示精确目标并由用户授权，再由 `context.Security` 代理执行。安全中心支持拒绝、
-单次、当前 TIMF 进程、精确持久授权和撤销。当前模组 DLL 仍与游戏运行在同一完全信任进程中，框架无法
-可靠拦截绕过代理的 `System.IO`、`Process` 或原生调用；设置中心会持续展示这一隔离边界警告。
+Sensitive file and process operations must first show an exact target and obtain user authorization, then execute through the `context.Security` proxy. The security center supports deny, once, current TIMF process, exact persistent authorization, and revocation. Mod DLLs still run inside the same fully trusted game process; the framework cannot reliably intercept `System.IO`, `Process`, or native calls that bypass the proxy. The settings hub continuously displays this isolation-boundary warning.
 
-作为加载前纵深防御，Core 会在**不加载程序集**的前提下扫描模组主 DLL 与私有依赖的 IL/元数据；直接文件、
-进程、网络、P/Invoke、动态调用、原生依赖和直接 Harmony 等痕迹会在任何模组构造函数执行前被拒载，并显示
-在安全中心。运行期反复抛异常的模组会被看门狗自动禁用（保持驻留但不再派发钩子）。普通配置改走每模组隔离
-的 `context.Storage`，Terraria 私有方法与 patch 分别走受限反射/patch 代理。静态审计能阻断常见绕过，但
-仍不等价于进程级沙箱。
+As defense in depth before loading, Core scans the IL and metadata of a mod's main DLL and private dependencies **without loading the assemblies**. Direct file, process, network, P/Invoke, dynamic invocation, native dependency, and direct Harmony traces cause the mod to be rejected before any constructor executes, with the findings shown in the security center. A mod that repeatedly throws at runtime is automatically disabled by the watchdog while remaining resident and no longer receiving hooks. Normal configuration uses per-mod isolated `context.Storage`; Terraria private methods and patches go through restricted reflection and patch proxies. Static auditing blocks common bypasses but is not equivalent to a process-level sandbox.
 
-跨模组服务也采用身份绑定发布：普通模组只能通过 `context.ServicePublisher` 发布自己程序集声明的接口，
-不能覆盖既有框架/安全/UI 服务；直接调用原始服务注册入口会被预加载审计拒绝。
+Cross-mod services are also identity-bound: an ordinary mod can publish only interfaces declared by its own assembly through `context.ServicePublisher`. It cannot replace framework, security, or UI services; direct calls to the raw service-registration entry point are rejected by the pre-load audit.
 
 ---
 
-## 示例模组
+## Example mods
 
-`examples/` 只保留以下 10 个公开示例，作为当前 API 的最佳实践参考；`build-examples.ps1` 会全量构建它们。
+`examples/` maintains the following 10 public examples as current API best-practice references; `build-examples.ps1` builds all of them.
 
-| 示例 | 侧别 / 协议 | 说明 |
+| Examples | Side / protocol | Description |
 |---|---|---|
-| BossCursor · HighLight · LowHealthWarning | `Client` | HUD、光照和状态提示等显示增强 |
-| WorldMapIcons | `Client` | 地图覆盖层示例（`IMapOverlayHook`） |
-| I-Have-My-Phone-Anyway | `Client` | 信息饰品示例（`IInfoAccessoryHook`） |
-| CreativeMode | `Client` | 物品生成 |
-| ModSettingsHub | `Client` | F9 统一设置中心 |
-| ContentTestKit | `Required` | 自定义物品、图格、墙、家具、容器、草/群系、射弹、Buff/Debuff、宠物物品、NPC 商店/任务和安全授权测试 |
-| **LootRates** | `Authority` / `Vanilla` | 主机掉落与金币倍率，**原版客户端可进房** |
-| **WeatherControl** | `Authority` / `Vanilla` | 天气控制与锁定，走 `IWeatherService` |
+| BossCursor · HighLight · LowHealthWarning | `Client` | HUD, lighting, and status-display enhancements |
+| WorldMapIcons | `Client` | Map overlay example (`IMapOverlayHook`) |
+| I-Have-My-Phone-Anyway | `Client` | Information accessory example (`IInfoAccessoryHook`) |
+| CreativeMode | `Client` | Item spawning plus Chinese/pinyin search (depends on `TIMF.Pinyin`) |
+| ModSettingsHub | `Client` | F9 settings hub: primary switches, feature switches, and settings-page state |
+| ContentTestKit | `Both` / `Required` | Pre-world registration and tests for custom items, tiles, walls, furniture, containers, grass/biomes, projectiles, buffs/debuffs, pet items, NPC shops/quests, and security authorization |
+| **LootRates** | `Authority` / `Vanilla` | Host drop and coin multipliers; **vanilla clients can join** |
+| **WeatherControl** | `Authority` / `Vanilla` | Native weather, wind, moon phase, and event control/locking through vanilla `WorldData` synchronization |
 
 ---
 
-## 许可与声明
+## License and notice
 
-- 仅用于**学习研究**与**单机 / 自建私服**的个人使用，请勿用于破坏多人游戏公平或绕过反作弊。
-- 需自备合法的 Terraria 客户端；本仓库**不包含也不分发**任何游戏二进制（`Terraria.exe` 已 gitignore）。
-- 使用注入技术修改商业游戏须自行遵守游戏 ToS 与当地法律，风险自负。
+- For **learning and research** and personal use in **single-player / self-hosted servers** only. Do not use it to undermine multiplayer fairness or bypass anti-cheat systems.
+- You must provide a legitimate Terraria client. This repository **does not contain or distribute** game binaries (`Terraria.exe` is gitignored).
+- If you use injection technology to modify a commercial game, you are responsible for complying with its ToS and applicable local law.

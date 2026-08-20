@@ -10,9 +10,10 @@ namespace TIMF.Core.Content
     /// Grows vanilla's fixed-size, id-indexed static arrays so custom item and tile ids
     /// can be addressed without every vanilla lookup throwing IndexOutOfRange.
     ///
-    /// Arrays are found by length: an id-indexed array is exactly <c>Count</c> elements long,
-    /// which on 1.4.5.6 matches 116 of the 119 arrays in ItemID.Sets and correctly skips the
-    /// three fixed-size lookup tables.
+    /// Arrays are found by length: an id-indexed array is exactly <c>Count</c> elements long.
+    /// The exact number of matching arrays is version-dependent; the verifier below checks the
+    /// critical tables after each expansion instead of baking a particular Terraria build's
+    /// array census into the compatibility layer.
     ///
     /// The scan covers the whole assembly. A curated type list was tried first and proved
     /// unworkable — it silently omitted <c>Item.claw</c>, which then threw IndexOutOfRange in
@@ -262,7 +263,7 @@ namespace TIMF.Core.Content
                 }
                 catch (Exception ex)
                 {
-                    _log.Warn("Content: coverage check for " + entry + " threw: " + ex.Message);
+            _log.Warn("Content: coverage check for " + entry + " threw: " + ex.GetType().Name);
                 }
             }
         }
@@ -277,7 +278,7 @@ namespace TIMF.Core.Content
             }
             catch (Exception ex)
             {
-                _log.Warn("Content: cannot enumerate " + type.FullName + ": " + ex.Message);
+            _log.Warn("Content: cannot enumerate " + type.FullName + ": " + ex.GetType().Name);
                 return 0;
             }
 
@@ -322,7 +323,7 @@ namespace TIMF.Core.Content
                 }
                 catch (Exception ex)
                 {
-                    _log.Warn("Content: failed to expand " + type.Name + "." + f.Name + ": " + ex.Message);
+            _log.Warn("Content: failed to expand " + type.Name + "." + f.Name + ": " + ex.GetType().Name);
                 }
             }
 
@@ -481,7 +482,7 @@ namespace TIMF.Core.Content
             }
             catch (Exception ex)
             {
-                _log.Warn("Content: could not update " + label + " SetFactory size: " + ex.Message);
+            _log.Warn("Content: could not update " + label + " SetFactory size: " + ex.GetType().Name);
             }
         }
 

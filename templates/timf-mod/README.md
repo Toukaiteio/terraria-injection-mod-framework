@@ -9,14 +9,14 @@ A Terraria mod for the TIMF injection framework, generated from the `timf-mod` t
   `TIMF_SDK` environment variable (recommended) or `-p:TimfSdkDir=<path>`:
 
   ```powershell
-  setx TIMF_SDK "C:\path\to\ModSDK"   # once, then reopen the shell
+  setx TIMF_SDK "<path-to-ModSDK>"   # once, then reopen the shell
   ```
 
-- **A Terraria.exe compile reference** — a legal copy you own (never redistributed). Auto-detected
-  from common Steam paths, or set it explicitly:
+- **A Terraria.exe compile reference** — a legal copy you own (never redistributed). Set it explicitly
+  or place `Terraria.exe` next to the extracted SDK:
 
   ```powershell
-  setx TIMF_TERRARIA "C:\Program Files (x86)\Steam\steamapps\common\Terraria\Terraria.exe"
+  setx TIMF_TERRARIA "<path-to-your-Terraria.exe>"
   ```
 
 ## Build

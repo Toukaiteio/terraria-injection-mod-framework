@@ -235,7 +235,7 @@ namespace TIMF.Core.Content
             {
                 failed = true;
                 result.Clear();
-                _log?.Error("Buff sidecar: reading " + path + " failed; original will be preserved", ex);
+                _log?.Error("Buff sidecar: reading " + Path.GetFileName(path) + " failed; original will be preserved", ex);
             }
             return result;
         }

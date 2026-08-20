@@ -28,6 +28,21 @@ namespace TIMF.Abstractions
         /// <summary>True when <see cref="IMod.Load"/> has completed for this process.</summary>
         bool IsLoaded { get; }
 
+        /// <summary>
+        /// True when the descriptor is classified for pre-world preparation (declared
+        /// LoadBeforeWorld, a content mod, or a hard dependency of one). False = world-staged:
+        /// loads on world enter and unloads on returning to the main menu. Authority-only mods
+        /// still wait for authority activation even when this flag is true.
+        /// </summary>
+        bool LoadsBeforeWorld { get; }
+
+        /// <summary>
+        /// Non-null when the mod implements <see cref="IModFeatureToggle"/>, is loaded, and the
+        /// current session permits interacting with it. This is the in-world substitute for the
+        /// menu-only mod enable switch.
+        /// </summary>
+        IModFeatureToggle FeatureToggle { get; }
+
         /// <summary>True when this session has activated the mod's authority half.</summary>
         bool ServerLogicActive { get; }
 

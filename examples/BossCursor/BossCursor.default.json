@@ -4,5 +4,7 @@
   "CursorDistance": 64,
   "HideOnScreen": false,
   "BlackListPillars": false,
+  "ShowHead": true,
+  "HeadSize": 1.0,
   "ToggleKey": "Insert"
 }

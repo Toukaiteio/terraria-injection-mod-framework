@@ -18,7 +18,7 @@ namespace ContentTestKit
     ///
     /// Net=Required because custom content ids are meaningless to a peer without this mod.
     /// </summary>
-    [TimfMod(Id = "ContentTestKit", Net = TimfNetProfile.Required)]
+    [TimfMod(Id = "ContentTestKit", Net = TimfNetProfile.Required, LoadBeforeWorld = true)]
     public sealed class ContentTestKitMod : IContentMod, IModSettings
     {
         private IModContext _ctx;

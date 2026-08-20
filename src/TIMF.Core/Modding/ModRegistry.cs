@@ -16,6 +16,7 @@ namespace TIMF.Core.Modding
             bool canChangeEnabled,
             string interactionLockReason,
             bool isLoaded,
+            bool loadsBeforeWorld,
             bool serverLogicActive,
             bool hasSettings,
             bool canOpenSettings,
@@ -31,10 +32,14 @@ namespace TIMF.Core.Modding
             CanChangeEnabled = canChangeEnabled;
             InteractionLockReason = interactionLockReason;
             IsLoaded = isLoaded;
+            LoadsBeforeWorld = loadsBeforeWorld;
             ServerLogicActive = serverLogicActive;
             // Do not merely ask UIs to behave: withhold the callable settings surface while
             // the server/session forbids it, so older hubs cannot invoke BuildSettingsUI.
             Settings = canOpenSettings ? instance as IModSettings : null;
+            // Same gating for the feature switch: only reachable while the mod may interact.
+            FeatureToggle = canOpenSettings || (isLoaded && isSessionAllowed && isEnabled)
+                ? instance as IModFeatureToggle : null;
             HasSettingsCapability = hasSettings;
             CanOpenSettings = canOpenSettings;
         }
@@ -49,6 +54,8 @@ namespace TIMF.Core.Modding
         public bool CanChangeEnabled { get; }
         public string InteractionLockReason { get; }
         public bool IsLoaded { get; }
+        public bool LoadsBeforeWorld { get; }
+        public IModFeatureToggle FeatureToggle { get; }
         public bool ServerLogicActive { get; }
         public IModSettings Settings { get; }
         public bool HasSettings => Settings != null;

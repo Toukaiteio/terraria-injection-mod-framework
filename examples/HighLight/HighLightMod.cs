@@ -13,7 +13,7 @@ namespace HighLight
     /// Behavior inspired by the tML HighLight client mod (not a source port).
     /// </summary>
     [TimfMod(Id = "HighLight", Side = TimfSide.Client)]
-    public sealed class HighLightMod : IClientMod, IModSettings
+    public sealed class HighLightMod : IClientMod, IModSettings, IModFeatureToggle
     {
         private IModContext _ctx;
         private HighLightConfig _config;
@@ -117,6 +117,20 @@ namespace HighLight
                 SaveConfig();
         }
 
+        /// <summary>In-world feature switch for hubs — mod enablement itself is menu-only.</summary>
+        public bool FeatureEnabled
+        {
+            get { return _config != null && _config.Enabled; }
+            set
+            {
+                if (_config == null || _config.Enabled == value)
+                    return;
+                _enabled = value;
+                _config.Enabled = value;
+                SaveConfig();
+            }
+        }
+
         private void SaveConfig()
         {
             try
@@ -188,6 +202,10 @@ namespace HighLight
             var baseColor = _config.CircleColor * MathHelper.Clamp(_config.Opacity, 0f, 1f);
             var scale = Math.Max(0.05f, _config.CircleScale);
 
+            // Gravity potion flips the world render (GameViewMatrix.Effects), so camera-relative
+            // overlay points must be mirrored too, exactly like vanilla CombatText compensates.
+            var gravityFlipped = IsGravityFlipped();
+
             // Hostile projectiles: circle + velocity prediction line.
             var projectiles = Main.projectile;
             if (projectiles != null)
@@ -199,7 +217,7 @@ namespace HighLight
                     if (proj == null || !proj.active || proj.friendly || proj.hide)
                         continue;
 
-                    var center = proj.Center - Main.screenPosition;
+                    var center = ToCameraRelative(proj.Center, gravityFlipped);
                     if (!IsNearScreen(center, Math.Max(proj.width, proj.height)))
                         continue;
 
@@ -209,6 +227,8 @@ namespace HighLight
                         DrawCircle(spriteBatch, center, Math.Max(proj.width, proj.height) / 2f * scale, baseColor, 3);
 
                     var velocity = proj.velocity;
+                    if (gravityFlipped)
+                        velocity.Y = -velocity.Y;
                     var speed = velocity.Length();
                     if (speed <= 0.1f)
                         continue;
@@ -250,7 +270,7 @@ namespace HighLight
                     if (npc == null || !npc.active || npc.friendly || npc.hide)
                         continue;
 
-                    var center = npc.Center - Main.screenPosition;
+                    var center = ToCameraRelative(npc.Center, gravityFlipped);
                     if (!IsNearScreen(center, Math.Max(npc.width, npc.height)))
                         continue;
 
@@ -262,14 +282,49 @@ namespace HighLight
             }
         }
 
+        /// <summary>
+        /// World → camera-relative screen point, mirroring Y when the gravity potion flips the
+        /// world render (GameViewMatrix.Effects = FlipVertically). Without this the overlay would
+        /// stay anchored to the pre-flip Y like the tML HighLight bug.
+        /// </summary>
+        private static bool IsGravityFlipped()
+        {
+            try
+            {
+                return Main.player != null
+                    && Main.myPlayer >= 0
+                    && Main.myPlayer < Main.player.Length
+                    && Main.player[Main.myPlayer] != null
+                    && Main.player[Main.myPlayer].gravDir == -1f;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        /// <summary>Translate a world position into camera-relative screen coords with gravity flip applied.</summary>
+        private static Vector2 ToCameraRelative(Vector2 worldPos, bool gravityFlipped)
+        {
+            var p = worldPos - Main.screenPosition;
+            if (gravityFlipped)
+                p.Y = Main.screenHeight - p.Y;
+            return p;
+        }
+
         /// <summary>Draw an outline (and optional fill) snapped to an entity's collision box.</summary>
         private void DrawHitbox(SpriteBatch sb, Vector2 worldPos, int width, int height, Color color)
         {
             if (_pixel == null || _pixel.IsDisposed)
                 return;
 
+            // Rectangle is offset from its center, so flip around the box's bottom edge:
+            // screenY' = screenHeight - (worldY + height - screenPosition.Y).
+            var gravityFlipped = IsGravityFlipped();
             var x = (int)(worldPos.X - Main.screenPosition.X);
             var y = (int)(worldPos.Y - Main.screenPosition.Y);
+            if (gravityFlipped)
+                y = (int)(Main.screenHeight - y - height);
             if (width <= 0 || height <= 0)
                 return;
 

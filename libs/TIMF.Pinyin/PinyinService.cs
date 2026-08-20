@@ -1,26 +1,27 @@
 using System;
-using NPinyin;
 
-namespace CreativeMode
+namespace TIMF.Pinyin
 {
+    // Alias avoids the collision between this mod's namespace (TIMF.Pinyin) and NPinyin's
+    // Pinyin class — a bare "Pinyin" here would bind to the namespace, not the type.
+    using NPinyinLib = global::NPinyin.Pinyin;
     /// <summary>
-    /// Chinese pinyin helper for item search, backed by the NPinyin library
-    /// (~40k CJK characters). Provides full pinyin + first-letter initials.
-    /// Non-CJK text passes through unchanged.
+    /// <see cref="IPinyinService"/> backed by the NPinyin library (~40k CJK characters).
+    /// Provides full pinyin + first-letter initials; non-CJK text passes through unchanged.
+    /// This is the single shared implementation that CreativeMode / BlockLocator (and any other
+    /// mod) reuse instead of each carrying its own copy of the logic and dataset.
     /// </summary>
-    internal static class PinyinHelper
+    internal sealed class PinyinService : IPinyinService
     {
-        /// <summary>Full pinyin (lowercase, no spaces, no tones). e.g. "火把" → "huoba".</summary>
-        public static string ToPinyin(string text)
+        public string ToPinyin(string text)
         {
             if (string.IsNullOrEmpty(text))
                 return "";
             try
             {
-                // NPinyin.GetPinyin returns space-separated capitalized pinyin for CJK,
-                // and passes through non-CJK characters as-is.
-                var raw = Pinyin.GetPinyin(text);
-                // Lowercase and strip spaces → "huoba"
+                // NPinyin.GetPinyin returns space-separated capitalized pinyin for CJK, and
+                // passes non-CJK characters through as-is. Lowercase + strip spaces → "huoba".
+                var raw = NPinyinLib.GetPinyin(text);
                 return raw.Replace(" ", "").ToLowerInvariant();
             }
             catch
@@ -29,15 +30,13 @@ namespace CreativeMode
             }
         }
 
-        /// <summary>First-letter initials (lowercase). e.g. "火把" → "hb".</summary>
-        public static string ToInitials(string text)
+        public string ToInitials(string text)
         {
             if (string.IsNullOrEmpty(text))
                 return "";
             try
             {
-                var raw = Pinyin.GetInitials(text);
-                return raw.ToLowerInvariant();
+                return NPinyinLib.GetInitials(text).ToLowerInvariant();
             }
             catch
             {
@@ -45,7 +44,7 @@ namespace CreativeMode
             }
         }
 
-        public static bool Matches(string name, string nameLower, string pinyin, string initials, string queryLower)
+        public bool Matches(string name, string nameLower, string pinyin, string initials, string queryLower)
         {
             if (string.IsNullOrEmpty(queryLower))
                 return true;

@@ -12,6 +12,10 @@ namespace BossCursor
         public float CursorDistance = 64f;
         public bool HideOnScreen = false;
         public bool BlackListPillars = false;
+        /// <summary>Draw the boss head icon next to the arrow.</summary>
+        public bool ShowHead = true;
+        /// <summary>Multiplier applied to the distance-scaled boss head icon.</summary>
+        public float HeadSize = 1.0f;
         /// <summary>XNA Keys enum name. Default Insert (F8 is vanilla debug menu).</summary>
         public string ToggleKey = "Insert";
 
@@ -33,6 +37,8 @@ namespace BossCursor
                 cfg.CursorDistance = ReadFloat(text, "CursorDistance", cfg.CursorDistance);
                 cfg.HideOnScreen = ReadBool(text, "HideOnScreen", cfg.HideOnScreen);
                 cfg.BlackListPillars = ReadBool(text, "BlackListPillars", cfg.BlackListPillars);
+                cfg.ShowHead = ReadBool(text, "ShowHead", cfg.ShowHead);
+                cfg.HeadSize = ReadFloat(text, "HeadSize", cfg.HeadSize);
                 cfg.ToggleKey = ReadString(text, "ToggleKey", cfg.ToggleKey);
             }
             catch
@@ -51,6 +57,8 @@ namespace BossCursor
             sb.AppendLine("  \"CursorDistance\": " + CursorDistance.ToString(CultureInfo.InvariantCulture) + ",");
             sb.AppendLine("  \"HideOnScreen\": " + (HideOnScreen ? "true" : "false") + ",");
             sb.AppendLine("  \"BlackListPillars\": " + (BlackListPillars ? "true" : "false") + ",");
+            sb.AppendLine("  \"ShowHead\": " + (ShowHead ? "true" : "false") + ",");
+            sb.AppendLine("  \"HeadSize\": " + HeadSize.ToString(CultureInfo.InvariantCulture) + ",");
             sb.AppendLine("  \"ToggleKey\": \"" + (ToggleKey ?? "F8") + "\"");
             sb.AppendLine("}");
             storage.WriteConfigText(name, sb.ToString());

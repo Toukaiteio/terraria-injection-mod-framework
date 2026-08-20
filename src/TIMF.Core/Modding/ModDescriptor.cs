@@ -38,6 +38,15 @@ namespace TIMF.Core.Modding
         public string SessionLockReason { get; set; }
 
         /// <summary>
+        /// True when the descriptor is classified for pre-world preparation (declared
+        /// LoadBeforeWorld, a content mod, or promoted because a pre-world mod hard-depends on
+        /// it). False = world-staged: loads on world enter and unloads on returning to the main
+        /// menu. Authority-only mods still wait for authority activation even when this flag is
+        /// true.
+        /// </summary>
+        public bool PreWorld { get; set; }
+
+        /// <summary>
         /// Set by <see cref="ModWatchdog"/> when the mod faults repeatedly inside framework-dispatched
         /// callbacks. A runtime-disabled mod stays resident but receives no further callbacks (see
         /// <c>ModLoader.IsExecutionAllowed</c>), the same fail-inert model the session gate uses.
@@ -119,7 +128,13 @@ namespace TIMF.Core.Modding
                     d.Id = attr.Id.Trim();
                 AddCsv(d, attr.Dependencies, soft: false);
                 AddCsv(d, attr.LoadAfter, soft: true);
+                d.PreWorld = attr.LoadBeforeWorld;
             }
+
+            // Content ids must be allocated for the whole set before any world data references
+            // them, so content mods cannot be world-staged regardless of their declaration.
+            if (!d.PreWorld && typeof(TIMF.Content.IContentMod).IsAssignableFrom(entryType))
+                d.PreWorld = true;
 
             foreach (TimfDependsOnAttribute dep in entryType.GetCustomAttributes(typeof(TimfDependsOnAttribute), false))
             {

@@ -60,7 +60,7 @@ jobs:
             ${{ runner.os }}-nuget-
 
       # MSYS2 MINGW32/i686 packages are flaky or empty on current GH runners
-      # (setup-msys2 + mingw-w64-i686-gcc often leaves C:\msys64\mingw32\bin without g++).
+ # (setup-msys2 + mingw-w64-i686-gcc may leave the compiler outside PATH).
       # Use a pinned winlibs i686 MinGW-w64 zip instead — pure download, no pacman.
       - name: Cache i686 MinGW toolchain
         id: cache-mingw

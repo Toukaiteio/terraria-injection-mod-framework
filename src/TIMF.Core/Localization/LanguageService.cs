@@ -61,7 +61,7 @@ namespace TIMF.Core.Localization
                 if (!_loggedHookFail)
                 {
                     _loggedHookFail = true;
-                    _log.Warn("LanguageService hook failed (will poll): " + ex.Message);
+            _log.Warn("LanguageService hook failed (will poll): " + ex.GetType().Name);
                 }
             }
         }

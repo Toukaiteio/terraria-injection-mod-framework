@@ -27,6 +27,14 @@ namespace TIMF.Abstractions
         public string LoadAfter { get; set; }
 
         /// <summary>
+        /// Classifies this mod for preparation right after injection (before the main menu),
+        /// e.g. framework libraries, service publishers, and content mods. When false (default)
+        /// the mod is world-staged: it loads when the player enters a world and unloads again on
+        /// returning to the main menu. Authority-only mods still wait for authority activation.
+        /// </summary>
+        public bool LoadBeforeWorld { get; set; }
+
+        /// <summary>
         /// Optional assertion of the capability side. When set it must match exactly what the
         /// capability interfaces (<see cref="IClientMod"/> / <see cref="IAuthorityMod"/>) imply —
         /// it documents intent and fails the load on drift, it does not override inference.

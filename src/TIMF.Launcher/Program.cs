@@ -22,7 +22,7 @@ namespace TIMF.Launcher
             {
                 Console.Error.WriteLine();
                 Console.Error.WriteLine("========== TIMF launcher error ==========");
-                Console.Error.WriteLine(ex);
+                Console.Error.WriteLine(SafeExceptionText(ex));
                 Console.Error.WriteLine("=========================================");
                 exitCode = 99;
             }
@@ -43,7 +43,7 @@ namespace TIMF.Launcher
 
             var logPath = Path.Combine(home, "logs", "launcher.log");
             Log(logPath, "TIMF Launcher starting");
-            Log(logPath, "Home: " + home);
+            Log(logPath, "TIMF home initialized");
 
             var configPath = Path.Combine(home, "timf.json");
             var wantServer = HasFlag(args, "--server") || HasFlag(args, "-server");
@@ -53,13 +53,13 @@ namespace TIMF.Launcher
                 Console.Error.WriteLine(wantServer
                     ? "TerrariaServer.exe not found."
                     : "Terraria.exe not found.");
-                Console.Error.WriteLine("Pass path as argument, use --server, or set gamePath/serverPath in " + configPath);
+                Console.Error.WriteLine("Pass the executable path as an argument, use --server, or configure gamePath/serverPath in timf.json.");
                 Log(logPath, "Game executable not found (server=" + wantServer + ")");
                 return 1;
             }
 
             SaveConfig(configPath, gamePath, wantServer);
-            Log(logPath, (wantServer ? "Server: " : "Game: ") + gamePath);
+            Log(logPath, (wantServer ? "Server executable selected: " : "Game executable selected: ") + Path.GetFileName(gamePath));
 
             var bootstrap = Path.Combine(home, "TIMF.Bootstrap.dll");
             if (!File.Exists(bootstrap))
@@ -72,7 +72,7 @@ namespace TIMF.Launcher
 
             if (!File.Exists(bootstrap))
             {
-                Console.Error.WriteLine("TIMF.Bootstrap.dll not found in " + home);
+                Console.Error.WriteLine("TIMF.Bootstrap.dll was not found next to the launcher.");
                 Log(logPath, "Bootstrap missing");
                 return 2;
             }
@@ -91,12 +91,11 @@ namespace TIMF.Launcher
                 string peDetail;
                 var peKind = PeMachine.Probe(bootstrap, out machine, out peDetail);
                 Log(logPath, "Bootstrap PE: " + PeMachine.Describe(peKind, machine, peDetail)
-                             + " size=" + new FileInfo(bootstrap).Length
-                             + " path=" + bootstrap);
+                             + " size=" + new FileInfo(bootstrap).Length);
             }
             catch (Exception ex)
             {
-                Log(logPath, "Bootstrap PE probe: " + ex.Message);
+                Log(logPath, "Bootstrap PE probe: " + ex.GetType().Name);
             }
 
             EnsureCorePresent(home, logPath);
@@ -104,10 +103,9 @@ namespace TIMF.Launcher
             var workDir = Path.GetDirectoryName(gamePath);
             var si = new Native.STARTUPINFO { cb = System.Runtime.InteropServices.Marshal.SizeOf(typeof(Native.STARTUPINFO)) };
 
-            // Pass TIMF_HOME to the child via environment block prepend is complex;
-            // write a sidecar file the bootstrap reads, and also set process env before CreateProcess inherit.
+            // Pass TIMF_HOME through the inherited environment. The bootstrap falls back to
+            // its own module directory, so no absolute-path sidecar file is needed.
             Environment.SetEnvironmentVariable("TIMF_HOME", home);
-            WriteHomeSidecar(home, workDir);
 
             var cmd = "\"" + gamePath + "\"";
             // Prefer suspended start → inject → resume so we load early.
@@ -137,25 +135,25 @@ namespace TIMF.Launcher
                 // Small delay so process PEB/loader is ready (still suspended primary thread).
                 System.Threading.Thread.Sleep(200);
 
-                Log(logPath, "Injecting " + bootstrap);
+                Log(logPath, "Injecting TIMF.Bootstrap.dll");
                 Injector.Inject(pi.hProcess, bootstrap);
                 Log(logPath, "Injection OK");
                 Console.WriteLine("Injected TIMF.Bootstrap.dll");
             }
             catch (Exception ex)
             {
-                Log(logPath, "Injection failed: " + ex);
+                Log(logPath, "Injection failed: " + SafeExceptionText(ex));
                 Console.Error.WriteLine();
                 Console.Error.WriteLine("========== TIMF injection failed ==========");
-                Console.Error.WriteLine(ex.Message);
+                Console.Error.WriteLine(SafeExceptionText(ex));
                 Console.Error.WriteLine("===========================================");
-                Console.Error.WriteLine("Home: " + home);
-                Console.Error.WriteLine("Bootstrap: " + bootstrap);
-                Console.Error.WriteLine("Game: " + gamePath);
-                Console.Error.WriteLine("Log: " + logPath);
+                Console.Error.WriteLine("Home: launcher directory");
+                Console.Error.WriteLine("Bootstrap: TIMF.Bootstrap.dll");
+                Console.Error.WriteLine("Game: " + Path.GetFileName(gamePath));
+                Console.Error.WriteLine("Log: logs\\launcher.log");
                 Console.Error.WriteLine();
                 Console.Error.WriteLine("Quick fixes:");
-                Console.Error.WriteLine("  • Move TIMF out of Downloads (e.g. C:\\TIMF) and re-run.");
+                Console.Error.WriteLine("  • Move TIMF to a short, writable installation directory and re-run.");
                 Console.Error.WriteLine("  • Allow TIMF + Terraria in antivirus / Defender exclusions.");
                 Console.Error.WriteLine("  • Confirm TIMF.Bootstrap.dll is the 32-bit build from the win-x86 package.");
                 Console.Error.WriteLine("  • Do not mix 64-bit native DLLs into the TIMF folder.");
@@ -169,8 +167,8 @@ namespace TIMF.Launcher
                 Native.CloseHandle(pi.hProcess);
             }
 
-            Console.WriteLine("TIMF home: " + home);
-            Console.WriteLine("Logs: " + Path.Combine(home, "logs"));
+            Console.WriteLine("TIMF home: launcher directory");
+            Console.WriteLine("Logs: logs\\");
             return 0;
         }
 
@@ -247,6 +245,11 @@ namespace TIMF.Launcher
             if (!string.IsNullOrEmpty(fromArg))
                 return fromArg;
 
+            var fromEnvironment = Environment.GetEnvironmentVariable(
+                wantServer ? "TIMF_TERRARIA_SERVER" : "TIMF_TERRARIA");
+            if (!string.IsNullOrWhiteSpace(fromEnvironment) && File.Exists(fromEnvironment))
+                return Path.GetFullPath(fromEnvironment);
+
             if (File.Exists(configPath))
             {
                 try
@@ -277,21 +280,6 @@ namespace TIMF.Launcher
                 catch { /* ignore */ }
             }
 
-            var exeName = wantServer ? "TerrariaServer.exe" : "Terraria.exe";
-            var roots = new[]
-            {
-                @"E:\SteamLibrary\steamapps\common\Terraria",
-                @"C:\Program Files (x86)\Steam\steamapps\common\Terraria",
-                @"D:\SteamLibrary\steamapps\common\Terraria",
-                @"D:\Program Files (x86)\Steam\steamapps\common\Terraria",
-            };
-            foreach (var root in roots)
-            {
-                var c = Path.Combine(root, exeName);
-                if (File.Exists(c))
-                    return c;
-            }
-
             try
             {
                 using (var k = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(@"Software\Valve\Steam"))
@@ -299,6 +287,7 @@ namespace TIMF.Launcher
                     var steamPath = k?.GetValue("SteamPath") as string;
                     if (!string.IsNullOrEmpty(steamPath))
                     {
+                        var exeName = wantServer ? "TerrariaServer.exe" : "Terraria.exe";
                         var p = Path.Combine(steamPath.Replace('/', '\\'), "steamapps", "common", "Terraria", exeName);
                         if (File.Exists(p))
                             return p;
@@ -357,18 +346,6 @@ namespace TIMF.Launcher
             return json.Substring(i + 1, j - i - 1).Replace("\\\\", "\\");
         }
 
-        private static void WriteHomeSidecar(string home, string gameDir)
-        {
-            // Bootstrap looks for TIMF_HOME.txt next to the bootstrap DLL and under game dir.
-            try
-            {
-                File.WriteAllText(Path.Combine(home, "TIMF_HOME.txt"), home, Encoding.UTF8);
-                if (!string.IsNullOrEmpty(gameDir) && Directory.Exists(gameDir))
-                    File.WriteAllText(Path.Combine(gameDir, "TIMF_HOME.txt"), home, Encoding.UTF8);
-            }
-            catch { /* ignore */ }
-        }
-
         private static void EnsureCorePresent(string home, string logPath)
         {
             var core = Path.Combine(home, "TIMF.Core.dll");
@@ -376,7 +353,7 @@ namespace TIMF.Launcher
             if (!File.Exists(core) || !File.Exists(abs))
             {
                 Log(logPath, "Warning: TIMF.Core.dll / TIMF.Abstractions.dll missing in home. Build and copy them first.");
-                Console.WriteLine("Warning: managed framework DLLs missing in " + home);
+                Console.WriteLine("Warning: managed framework DLLs are missing next to the launcher.");
             }
         }
 
@@ -385,6 +362,11 @@ namespace TIMF.Launcher
             var line = string.Format("[{0:yyyy-MM-dd HH:mm:ss}] {1}", DateTime.Now, message);
             try { File.AppendAllText(path, line + Environment.NewLine, Encoding.UTF8); } catch { /* ignore */ }
             Console.WriteLine(message);
+        }
+
+        private static string SafeExceptionText(Exception ex)
+        {
+            return ex == null ? "Unknown error" : ex.GetType().Name;
         }
     }
 }

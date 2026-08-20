@@ -38,8 +38,8 @@ namespace TIMF.Core
                 _log = new FileLogger(Path.Combine(_home, "logs", "timf-core.log"), "Core");
                 _log.Info("=== TIMF Core starting ===");
                 _log.Info("TIMF version: " + TimfInfo.Version);
-                _log.Info("Home: " + _home);
-                _log.Info("Argument: " + (argument ?? "(null)"));
+                _log.Info("TIMF home initialized");
+                _log.Info("TIMF home argument received: " + (!string.IsNullOrWhiteSpace(argument) ? "yes" : "no"));
                 _log.Info("CLR: " + Environment.Version);
                 _log.Info("Is64BitProcess: " + Environment.Is64BitProcess);
 
@@ -70,7 +70,7 @@ namespace TIMF.Core
                 }
                 catch (Exception ex)
                 {
-                    _log.Warn("Could not read Terraria version: " + ex.Message);
+                    _log.Warn("Could not read Terraria version: " + ex.GetType().Name);
                 }
 
                 _modLoader = new ModLoader(_log, _home);
@@ -95,7 +95,7 @@ namespace TIMF.Core
                     else
                         File.AppendAllText(
                             Path.Combine(Path.GetTempPath(), "timf-bootstrap-error.log"),
-                            DateTime.Now + " " + ex + Environment.NewLine);
+                            DateTime.Now + " " + ex.GetType().Name + Environment.NewLine);
                 }
                 catch { /* ignore */ }
                 return 2;

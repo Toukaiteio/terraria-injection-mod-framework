@@ -15,7 +15,7 @@ namespace IHaveMyPhoneAnyway
     /// Player.RefreshInfoAccs when inventory is open), after the game recomputes them.
     /// </summary>
     [TimfMod(Id = "I-Have-My-Phone-Anyway", Side = TimfSide.Client)]
-    public sealed class PhoneAnywayMod : IClientMod, IModSettings, IInfoAccessoryHook
+    public sealed class PhoneAnywayMod : IClientMod, IModSettings, IInfoAccessoryHook, IModFeatureToggle
     {
         private IModContext _ctx;
         private PhoneConfig _config;
@@ -103,6 +103,9 @@ namespace IHaveMyPhoneAnyway
             var L = _ctx.L;
 
             dirty |= ui.Checkbox(L.Get("Settings.Enabled", "Enabled"), ref _config.Enabled);
+            ui.TextColored(L.Get("Settings.Hint", "Shows phone info displays. No teleport."), new Color(160, 200, 255));
+            ui.Separator();
+            ui.Text(L.Get("Settings.Categories", "Info categories:"));
             dirty |= ui.Checkbox(L.Get("Settings.Clock", "Clock (exact time)"), ref _config.Clock);
             dirty |= ui.Checkbox(L.Get("Settings.Position", "Position + depth"), ref _config.PositionAndDepth);
             dirty |= ui.Checkbox(L.Get("Settings.Weather", "Weather / wind"), ref _config.Weather);
@@ -112,8 +115,24 @@ namespace IHaveMyPhoneAnyway
             dirty |= ui.Checkbox(L.Get("Settings.Detection", "Detection (enemies/treasure/ore/DPS)"), ref _config.Detection);
             dirty |= ui.Checkbox(L.Get("Settings.Movement", "Movement speed"), ref _config.Movement);
 
+            ui.Spacing();
+            ui.TextColored(L.Get("Settings.Tip", "Tip: hover the info icons (top-left) for details."), new Color(150, 150, 150));
+
             if (dirty)
                 SaveConfig();
+        }
+
+        /// <summary>In-world feature switch for hubs — mod enablement itself is menu-only.</summary>
+        public bool FeatureEnabled
+        {
+            get { return _config != null && _config.Enabled; }
+            set
+            {
+                if (_config == null || _config.Enabled == value)
+                    return;
+                _config.Enabled = value;
+                SaveConfig();
+            }
         }
 
         private void SaveConfig()

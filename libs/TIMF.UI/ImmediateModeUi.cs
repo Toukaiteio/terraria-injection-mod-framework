@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Reflection;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
@@ -84,6 +85,9 @@ namespace TIMF.UI
         private string _activeId;
         private string _hotId;
         private string _focusedInputId;
+        // Per-widget text buffer for InputFloat's editable middle field (persists while focused,
+        // keyed by the same widget id InputText uses).
+        private readonly Dictionary<string, string> _floatEditBuffers = new Dictionary<string, string>();
         // Track game flags we set so we can release them when UI is gone.
         // Main.blockInput is sticky: Player.Update skips CopyInto while true → no movement/use.
         // Main.blockMouse is also sticky in-world (vanilla only clears it in a few UI paths).
@@ -528,9 +532,51 @@ namespace TIMF.UI
             _ownedBlockMouse = false;
         }
 
-        /// <summary>UI-logical screen size (physical / uiScale).</summary>
-        private float ScreenWidthUi => _uiScale > 0.01f ? Main.screenWidth / _uiScale : Main.screenWidth;
-        private float ScreenHeightUi => _uiScale > 0.01f ? Main.screenHeight / _uiScale : Main.screenHeight;
+        /// <summary>
+        /// UI-logical screen size (physical / uiScale). Sized from the device viewport: it is
+        /// always physical pixels, whereas Main.screenWidth/Height flip to UI-logical values
+        /// around PlayerInput.SetZoom_UI — dividing those again would double-scale and clamp
+        /// window drags to ~1/UIScale² of the screen.
+        /// </summary>
+        private float ScreenWidthUi
+        {
+            get
+            {
+                var w = (float)PhysicalScreenSize(true);
+                return _uiScale > 0.01f ? w / _uiScale : w;
+            }
+        }
+
+        private float ScreenHeightUi
+        {
+            get
+            {
+                var h = (float)PhysicalScreenSize(false);
+                return _uiScale > 0.01f ? h / _uiScale : h;
+            }
+        }
+
+        private static int PhysicalScreenSize(bool width)
+        {
+            try
+            {
+                GraphicsDevice device = null;
+                if (Main.instance != null)
+                    device = Main.instance.GraphicsDevice;
+                if (device == null && Main.graphics != null)
+                    device = Main.graphics.GraphicsDevice;
+                if (device != null)
+                {
+                    var vp = device.Viewport;
+                    var v = width ? vp.Width : vp.Height;
+                    if (v > 0)
+                        return v;
+                }
+            }
+            catch { /* fall through */ }
+
+            return width ? Main.screenWidth : Main.screenHeight;
+        }
 
         private Matrix GetUiMatrix()
         {
@@ -1327,7 +1373,6 @@ namespace TIMF.UI
 
         public bool InputFloat(string label, ref float value, float step = 0.1f)
         {
-            // Minimal: label + [-] value [+] buttons
             if (_cur == null)
                 return false;
             AdvanceLine();
@@ -1345,20 +1390,75 @@ namespace TIMF.UI
             var plus = new Rectangle((int)_cursorX + 28 + 70, (int)_cursorY, 24, (int)RowH);
             var valRect = new Rectangle((int)_cursorX + 28, (int)_cursorY, 66, (int)RowH);
 
+            var id = _cur.Title + "##if##" + label + ChildIdSuffix();
+
+            // Editable middle field: click to focus, type a number directly, click away to commit.
+            string buffer;
+            if (!_floatEditBuffers.TryGetValue(id, out buffer) || !IsFocusedInput(id))
+                buffer = FormatFloat(value);
+            _floatEditBuffers[id] = buffer;
+
+            var hot = Hit(valRect);
+            if (hot)
+                _wantCapture = true;
+
+            if (_lmbClick)
+            {
+                if (hot)
+                    _focusedInputId = id;
+                else if (_focusedInputId == id)
+                    _focusedInputId = null;
+            }
+
+            var focused = _focusedInputId == id;
+            if (focused)
+            {
+                _wantCaptureKeyboard = true;
+                TrySetBlockInput(true);
+                TrySetWritingText(true);
+                if (ProcessTextInput(ref buffer, 12))
+                {
+                    _floatEditBuffers[id] = buffer;
+                    float parsed;
+                    if (float.TryParse(buffer, NumberStyles.Float, CultureInfo.InvariantCulture, out parsed))
+                    {
+                        if (parsed != value)
+                        {
+                            value = parsed;
+                            changed = true;
+                        }
+                    }
+                }
+            }
+
             if (MiniButton(minus, "-", _cur.Title + "##if-##" + label + ChildIdSuffix()))
             {
                 value -= step;
                 changed = true;
+                _floatEditBuffers[id] = FormatFloat(value);
             }
 
             PushRect(valRect, ColSliderBg);
-            var vs = value.ToString("0.###");
-            PushTextCentered(vs, valRect, ColText);
+            var border = focused ? ColSliderFill : ColBorder;
+            PushRect(new Rectangle(valRect.X, valRect.Y, valRect.Width, 1), border);
+            PushRect(new Rectangle(valRect.X, valRect.Bottom - 1, valRect.Width, 1), border);
+            PushRect(new Rectangle(valRect.X, valRect.Y, 1, valRect.Height), border);
+            PushRect(new Rectangle(valRect.Right - 1, valRect.Y, 1, valRect.Height), border);
+
+            var shown = focused ? buffer : FormatFloat(value);
+            if (focused && ((int)(_caretBlink * 2) % 2 == 0))
+                shown += "|";
+            if (!string.IsNullOrEmpty(shown))
+            {
+                var tsz = Measure(shown);
+                PushText(shown, new Vector2(valRect.X + 6, TextYInBox(valRect.Y, valRect.Height, tsz.Y)), ColText);
+            }
 
             if (MiniButton(plus, "+", _cur.Title + "##if+##" + label + ChildIdSuffix()))
             {
                 value += step;
                 changed = true;
+                _floatEditBuffers[id] = FormatFloat(value);
             }
 
             _contentMaxX = Math.Max(_contentMaxX, plus.Right);
@@ -1366,6 +1466,16 @@ namespace TIMF.UI
             _cursorY = oldY + RowH + 4;
             _sameLine = false;
             return changed;
+        }
+
+        private static string FormatFloat(float value)
+        {
+            return value.ToString("0.###", CultureInfo.InvariantCulture);
+        }
+
+        private bool IsFocusedInput(string id)
+        {
+            return _focusedInputId == id;
         }
 
         public bool InputText(string label, ref string value, int maxLength = 64)

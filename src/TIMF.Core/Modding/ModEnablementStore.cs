@@ -78,11 +78,11 @@ namespace TIMF.Core.Modding
                     i = colon + 1;
                 }
 
-                _log.Info("Mod enablement loaded (" + _enabled.Count + " override(s)) from " + _path);
+                _log.Info("Mod enablement loaded (" + _enabled.Count + " override(s))");
             }
             catch (Exception ex)
             {
-                _log.Warn("Failed to read enabled-mods.json: " + ex.Message);
+                _log.Warn("Failed to read enabled-mods.json: " + ex.GetType().Name);
             }
         }
 
@@ -111,7 +111,7 @@ namespace TIMF.Core.Modding
             }
             catch (Exception ex)
             {
-                _log.Warn("Failed to write enabled-mods.json: " + ex.Message);
+                _log.Warn("Failed to write enabled-mods.json: " + ex.GetType().Name);
             }
         }
 
